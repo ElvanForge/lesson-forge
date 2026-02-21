@@ -24,11 +24,15 @@
         }
 
         const setupAuth = async () => {
+            // Initial check
             const {
-                data: { session },
-            } = await supabase.auth.getSession();
-            if (session) {
-                handleAuthStateChange(session);
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+                isLoggedIn = true;
+                email = user.email || "";
+                refreshCredits(user.id);
+                fetchHistory(user.id);
             }
 
             const {
@@ -47,25 +51,25 @@
         };
     });
 
+    async function refreshCredits(userId: string) {
+        const { data, error } = await supabase
+            .from("users")
+            .select("credit_balance")
+            .eq("id", userId)
+            .single();
+
+        if (data) {
+            credits = data.credit_balance;
+        } else if (error) {
+            console.warn("Error fetching credits:", error.message);
+        }
+    }
+
     async function handleAuthStateChange(session: any) {
         if (session) {
             isLoggedIn = true;
             email = session.user.email;
-            // Fetch credits from Supabase
-            const { data, error } = await supabase
-                .from("users")
-                .select("credit_balance")
-                .eq("id", session.user.id)
-                .single();
-
-            if (data) {
-                credits = data.credit_balance;
-            } else {
-                console.warn(
-                    "User profile not found yet. It may be initializing...",
-                );
-            }
-            // Fetch history when logged in
+            refreshCredits(session.user.id);
             fetchHistory(session.user.id);
         } else {
             isLoggedIn = false;
@@ -137,14 +141,13 @@
             const result = await response.json();
 
             // Re-fetch credits and history
-            const { data: userData } = await supabase
-                .from("users")
-                .select("credit_balance")
-                .eq("id", session.user.id)
-                .single();
-            if (userData) credits = userData.credit_balance;
-
-            fetchHistory(session.user.id);
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+                refreshCredits(user.id);
+                fetchHistory(user.id);
+            }
             prompt = "";
         } catch (error: any) {
             console.error("Generation error:", error);
