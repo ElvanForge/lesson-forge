@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -35,6 +36,9 @@ type User struct {
 var pool *pgxpool.Pool
 
 func main() {
+	// Load environment variables from the root .env file
+	_ = godotenv.Load("../.env")
+
 	config := Config{
 		DatabaseURL:        os.Getenv("DATABASE_URL"),
 		StripeKey:          os.Getenv("STRIPE_KEY"),
@@ -63,11 +67,12 @@ func main() {
 	mux.HandleFunc("POST /api/webhook/stripe", handleStripeWebhook)
 
 	// Protected routes (requires auth & credits)
-	mux.Handle("POST /api/generate", creditMiddleware(http.HandlerFunc(handleGeneratePPT)))
+	mux.Handle("POST /api/generate", authMiddleware(creditMiddleware(http.HandlerFunc(handleGeneratePPT))))
 	mux.Handle("GET /api/user/credits", authMiddleware(http.HandlerFunc(handleGetCredits)))
 
 	// Chain global middlewares
-	handler := securityHeadersMiddleware(mux)
+	handler := requestLoggerMiddleware(mux)
+	handler = securityHeadersMiddleware(handler)
 	handler = corsMiddleware(config.AllowedOrigins, handler)
 	handler = rateLimitMiddleware(handler)
 
@@ -78,10 +83,21 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	log.Printf("Server starting on port %s", config.Port)
+	fmt.Printf("Server starting on port %s\n", config.Port)
+	fmt.Printf("Allowed Origins: %s\n", config.AllowedOrigins)
+	fmt.Printf("Database URL present: %v\n", config.DatabaseURL != "")
+
 	if err := server.ListenAndServe(); err != nil {
+		fmt.Printf("Server failed: %v\n", err)
 		log.Fatal(err)
 	}
+}
+
+func requestLoggerMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Printf("[%s] %s %s\n", time.Now().Format("15:04:05"), r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Global Security Middlewares
@@ -100,9 +116,20 @@ func securityHeadersMiddleware(next http.Handler) http.Handler {
 
 func corsMiddleware(allowedOrigins string, next http.Handler) http.Handler {
 	origins := strings.Split(allowedOrigins, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		isAllowed := false
+
+		// Always allow if no origin (non-browser)
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		for _, o := range origins {
 			if o == origin || o == "*" {
 				isAllowed = true
@@ -114,6 +141,9 @@ func corsMiddleware(allowedOrigins string, next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+		} else {
+			fmt.Printf("CORS rejected origin: [%s]. Allowed: %v\n", origin, origins)
 		}
 
 		if r.Method == "OPTIONS" {
@@ -216,12 +246,18 @@ func authMiddleware(next http.Handler) http.Handler {
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY")) // Use anon key for user verification
 
 		resp, err := client.Do(req)
-		if err != nil || resp.StatusCode != http.StatusOK {
-			// Don't leak specific error details to the client
+		if err != nil {
+			fmt.Printf("Auth middleware network error: %v\n", err)
 			http.Error(w, "Authentication failed", http.StatusUnauthorized)
 			return
 		}
 		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			fmt.Printf("Auth middleware Supabase rejection: status %d for token starting with %s\n", resp.StatusCode, token[:10])
+			http.Error(w, "Authentication failed", http.StatusUnauthorized)
+			return
+		}
 
 		var sbUser struct {
 			ID string `json:"id"`
@@ -267,22 +303,22 @@ func handleGeneratePPT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Calculate and deduct credit (atomic update)
+	// 1. Calculate credit cost
 	creditCost := 1
 	if reqBody.Mode == "ppt" && reqBody.IncludeImages {
 		creditCost = 2
 	}
 
-	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2 AND credit_balance >= $1", creditCost, userID)
-	if err != nil || res.RowsAffected() == 0 {
-		http.Error(w, "Credit deduction failed or insufficient balance", http.StatusPaymentRequired)
+	// 2. Double check balance before LLM call (extra safety beyond middleware)
+	var balance int
+	err := pool.QueryRow(ctx, "SELECT credit_balance FROM users WHERE id = $1", userID).Scan(&balance)
+	if err != nil || balance < creditCost {
+		http.Error(w, "Insufficient credits", http.StatusPaymentRequired)
 		return
 	}
 
-	// 2. Select AI Provider based on environment configuration
+	// 3. Select AI Provider and Generate
 	provider := GetAIProvider()
-
-	// Enrich prompt with mode context
 	enrichedPrompt := fmt.Sprintf("Mode: %s. Prompt: %s", reqBody.Mode, reqBody.Prompt)
 	if reqBody.Mode == "ppt" && reqBody.IncludeImages {
 		enrichedPrompt += " (Include descriptions for 4-6 relevant images)"
@@ -290,21 +326,31 @@ func handleGeneratePPT(w http.ResponseWriter, r *http.Request) {
 
 	aiContent, err := provider.GenerateContent(ctx, enrichedPrompt)
 	if err != nil {
-		// Refund credit if AI fails
 		log.Printf("AI Generation error for user %s: %v", userID, err)
-		pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2", creditCost, userID)
 		http.Error(w, "AI service currently unavailable", http.StatusBadGateway)
 		return
 	}
 
-	// 3. Generate PPTX
-	filePath, err := GeneratePPTX(userID, aiContent)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("PPTX Generation failed: %v", err), http.StatusInternalServerError)
+	// 4. Deduct credit ONLY after successful AI response (Post-pay)
+	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2 AND credit_balance >= $1", creditCost, userID)
+	if err != nil || res.RowsAffected() == 0 {
+		// This should theoretically not happen if balance was checked above and no concurrent reqs
+		http.Error(w, "Credit deduction failed", http.StatusInternalServerError)
 		return
 	}
 
-	// 4. Log generation
+	// 5. Generate PPTX
+	filePath, err := GeneratePPTX(userID, aiContent)
+	if err != nil {
+		// Refund if file gen fails? User said "ONLY after a successful 200 OK response from the LLM"
+		// If LLM was successful, we deducted. If file fails, we might still want to refund.
+		log.Printf("PPTX Generation failed for user %s: %v", userID, err)
+		pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2", creditCost, userID)
+		http.Error(w, "Generation failed", http.StatusInternalServerError)
+		return
+	}
+
+	// 6. Log generation
 	_, _ = pool.Exec(ctx, "INSERT INTO generations (user_id, prompt, file_path, status) VALUES ($1, $2, $3, $4)",
 		userID, reqBody.Prompt, filePath, "completed")
 
