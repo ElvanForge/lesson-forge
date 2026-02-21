@@ -33,6 +33,87 @@ type User struct {
 	CreditBalance int    `json:"credit_balance"`
 }
 
+type GenerateRequest struct {
+	Prompt        string `json:"prompt"`
+	Mode          string `json:"mode"`
+	IncludeImages bool   `json:"includeImages"` 
+}
+func handleGenerate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	userID, ok := ctx.Value("userID").(string)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var reqBody GenerateRequest
+	if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Engineering Guard: Default to lesson mode if not specified
+	if reqBody.Mode == "" {
+		reqBody.Mode = "lesson"
+	}
+
+	creditCost := 1
+	if reqBody.IncludeImages {
+		creditCost = 2
+	}
+
+	// 1. Pre-check balance (Optional but good for UX)
+	// 2. Call AI Provider (Mock until Feb 27)
+	provider := GetAIProvider()
+	aiContent, err := provider.GenerateContent(ctx, reqBody.Prompt)
+	if err != nil {
+		log.Printf("AI Provider error: %v", err)
+		http.Error(w, "AI service unavailable", http.StatusBadGateway)
+		return
+	}
+
+	// 3. POST-PAY: Deduct credits
+	tag, err := pool.Exec(ctx, `
+		UPDATE users 
+		SET credit_balance = credit_balance - $1 
+		WHERE id = $2 AND credit_balance >= $1`, 
+		creditCost, userID)
+	
+	if err != nil || tag.RowsAffected() == 0 {
+		http.Error(w, "Insufficient credits", http.StatusPaymentRequired)
+		return
+	}
+
+	// 4. File Generation Routing
+	var filePath string
+	var genErr error
+
+	if reqBody.Mode == "lesson" {
+		filePath, genErr = GeneratePDF(userID, aiContent)
+	} else {
+		filePath, genErr = GeneratePPTX(userID, aiContent)
+	}
+
+	if genErr != nil {
+		log.Printf("Generation failed: %v", genErr)
+		// REFUND: Atomic increment
+		_, _ = pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2", creditCost, userID)
+		http.Error(w, "Failed to build file", http.StatusInternalServerError)
+		return
+	}
+
+	// 5. Finalize Generation Record
+	_, err = pool.Exec(ctx, `
+		INSERT INTO generations (user_id, prompt, file_path, status) 
+		VALUES ($1, $2, $3, 'completed')`,
+		userID, reqBody.Prompt, filePath)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"file_path": filePath,
+		"mode":      reqBody.Mode,
+	})
+}
 var pool *pgxpool.Pool
 
 func main() {
