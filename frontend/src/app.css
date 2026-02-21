@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #016B61;
+  --color-secondary: #70B2B2;
+  --color-accent: #9ECFD4;
+  --color-surface: #E5E9C5;
+  
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-surface/30 text-slate-900 antialiased min-h-screen font-sans;
+    background-image: 
+      radial-gradient(at 0% 0%, rgba(1, 107, 97, 0.05) 0px, transparent 50%),
+      radial-gradient(at 100% 100%, rgba(158, 207, 212, 0.1) 0px, transparent 50%);
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20 shadow-xl;
+  }
+  
+  .btn-premium {
+    @apply relative overflow-hidden transition-all duration-300 active:scale-95 px-6 py-2.5 rounded-xl font-semibold shadow-lg hover:shadow-primary/20 flex items-center justify-center gap-2;
+  }
+  
+  .card-premium {
+    @apply bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow duration-300;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
