@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/jackc/pgx/v5"
 )
 
 type Config struct {
@@ -283,31 +284,33 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 
 // Middleware to check user credits before LLM calls
 func creditMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-		defer cancel()
+    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        userID := r.Header.Get("X-User-ID") 
+        
+        var balance int
+        ctx := r.Context()
+        err := pool.QueryRow(ctx, "SELECT credit_balance FROM users WHERE id = $1", userID).Scan(&balance)
+        
+        if err != nil {
+            if err == pgx.ErrNoRows {
+                fmt.Printf("DEBUG: Database could not find ID: [%s]\n", userID) // Add this log
+                http.Error(w, "User not found", http.StatusNotFound)
+                log.Printf("DB Error: %v", err)
+                return
+            }
+            http.Error(w, "Database error", http.StatusInternalServerError)
+            return
+        } // <--- You were missing this brace
 
-		userID := r.Header.Get("X-User-ID") // Simple auth for demo
-		if userID == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
+        if balance < 1 {
+            http.Error(w, "Insufficient credits", http.StatusPaymentRequired)
+            return
+        }
 
-		var balance int
-		err := pool.QueryRow(ctx, "SELECT credit_balance FROM users WHERE id = $1", userID).Scan(&balance)
-		if err != nil {
-			http.Error(w, "User not found", http.StatusNotFound)
-			return
-		}
+        next.ServeHTTP(w, r)
+    })
+} 
 
-		if balance < 1 {
-			http.Error(w, "Insufficient credits", http.StatusPaymentRequired)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
-}
 
 // authMiddleware validates the Supabase JWT
 func authMiddleware(next http.Handler) http.Handler {
