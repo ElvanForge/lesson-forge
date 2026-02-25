@@ -268,7 +268,6 @@ function to_style(value, styles) {
 }
 const BLOCK_OPEN = `<!--${HYDRATION_START}-->`;
 const BLOCK_CLOSE = `<!--${HYDRATION_END}-->`;
-const EMPTY_COMMENT = `<!---->`;
 let controller = null;
 function abort() {
   controller?.abort(STALE_REACTION);
@@ -439,10 +438,10 @@ class Renderer {
    * @param {(renderer: Renderer) => void} fn
    */
   head(fn) {
-    const head2 = new Renderer(this.global, this);
-    head2.type = "head";
-    this.#out.push(head2);
-    head2.child(fn);
+    const head = new Renderer(this.global, this);
+    head.type = "head";
+    this.#out.push(head);
+    head.child(fn);
   }
   /**
    * @param {Array<Promise<void>>} blockers
@@ -636,7 +635,7 @@ class Renderer {
    */
   option(attrs, body, css_hash, classes, styles, flags, is_rich) {
     this.#out.push(`<option${attributes(attrs, css_hash, classes, styles, flags)}`);
-    const close = (renderer, value, { head: head2, body: body2 }) => {
+    const close = (renderer, value, { head, body: body2 }) => {
       if (has_own_property.call(attrs, "value")) {
         value = attrs.value;
       }
@@ -644,8 +643,8 @@ class Renderer {
         renderer.#out.push(' selected=""');
       }
       renderer.#out.push(`>${body2}${is_rich ? "<!>" : ""}</option>`);
-      if (head2) {
-        renderer.head((child) => child.push(head2));
+      if (head) {
+        renderer.head((child) => child.push(head));
       }
     };
     if (typeof body === "function") {
@@ -670,8 +669,8 @@ class Renderer {
    */
   title(fn) {
     const path = this.get_path();
-    const close = (head2) => {
-      this.global.set_title(head2, path);
+    const close = (head) => {
+      this.global.set_title(head, path);
     };
     this.child((renderer) => {
       const r = new Renderer(renderer.global, renderer);
@@ -985,13 +984,13 @@ class Renderer {
     for (const cleanup of renderer.#collect_on_destroy()) {
       cleanup();
     }
-    let head2 = content.head + renderer.global.get_title();
+    let head = content.head + renderer.global.get_title();
     let body = content.body;
     for (const { hash, code } of renderer.global.css) {
-      head2 += `<style id="${hash}">${code}</style>`;
+      head += `<style id="${hash}">${code}</style>`;
     }
     return {
-      head: head2,
+      head,
       body,
       hashes: {
         script: renderer.global.csp.script_hashes
@@ -1105,13 +1104,6 @@ function render(component, options = {}) {
     options
   );
 }
-function head(hash, renderer, fn) {
-  renderer.head((renderer2) => {
-    renderer2.push(`<!--${hash}-->`);
-    renderer2.child(fn);
-    renderer2.push(EMPTY_COMMENT);
-  });
-}
 function attributes(attrs, css_hash, classes, styles, flags = 0) {
   if (styles) {
     attrs.style = to_style(attrs.style, styles);
@@ -1183,7 +1175,7 @@ function derived(fn) {
   };
 }
 export {
-  head as $,
+  attr_class as $,
   ASYNC as A,
   BOUNDARY_EFFECT as B,
   COMMENT_NODE as C,
@@ -1212,10 +1204,9 @@ export {
   setContext as Z,
   derived as _,
   HYDRATION_END as a,
-  attr_class as a0,
-  attr as a1,
-  ensure_array_like as a2,
-  stringify as a3,
+  ensure_array_like as a0,
+  stringify as a1,
+  attr as a2,
   HYDRATION_START as b,
   HYDRATION_START_ELSE as c,
   EFFECT as d,

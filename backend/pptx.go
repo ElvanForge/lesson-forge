@@ -6,14 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/unidoc/unioffice/measurement"
-	"github.com/unidoc/unioffice/presentation"
+	"baliance.com/gooxml/measurement"
+	"baliance.com/gooxml/presentation"
 )
 
 func GeneratePPTX(userID string, content string) (string, error) {
 	ppt := presentation.New()
 
-	// Ensure we have slides. Split by '##' per our architecture
+	// Split content by '##' per your existing architecture
 	slidesContent := strings.Split(content, "##")
 
 	for _, section := range slidesContent {
@@ -25,13 +25,15 @@ func GeneratePPTX(userID string, content string) (string, error) {
 		slide := ppt.AddSlide()
 		lines := strings.Split(trimmed, "\n")
 
-		// 1. Add Title
+		// 1. Add Title Box
 		titleBox := slide.AddTextBox()
 		titleBox.Properties().SetPosition(0.5*measurement.Inch, 0.5*measurement.Inch)
 		titleBox.Properties().SetSize(9*measurement.Inch, 1*measurement.Inch)
 		
 		titlePara := titleBox.AddParagraph()
 		titleRun := titlePara.AddRun()
+		
+		// Set Title Text
 		titleRun.SetText(lines[0])
 		titleRun.Properties().SetSize(32)
 
@@ -43,18 +45,20 @@ func GeneratePPTX(userID string, content string) (string, error) {
 			
 			bodyPara := bodyBox.AddParagraph()
 			bodyRun := bodyPara.AddRun()
-			bodyRun.SetText(strings.Join(lines[1:], "\n"))
+			
+			// Join remaining lines as body text
+			bodyText := strings.Join(lines[1:], "\n")
+			bodyRun.SetText(bodyText)
 			bodyRun.Properties().SetSize(18)
 		}
 	}
 
-	// Ensure output directory exists
 	dir := "./output"
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", err
 	}
 
-	filename := fmt.Sprintf("%s_%d.pptx", userID, os.Getpid())
+	filename := fmt.Sprintf("presentation_%s_%d.pptx", userID, os.Getpid())
 	path := filepath.Join(dir, filename)
 
 	if err := ppt.SaveToFile(path); err != nil {

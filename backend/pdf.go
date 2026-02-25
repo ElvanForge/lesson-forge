@@ -16,78 +16,90 @@ func GeneratePDF(userID string, content string) (string, error) {
 	m := pdf.NewMaroto(consts.Portrait, consts.A4)
 	m.SetPageMargins(10, 15, 10)
 
-	// 1. Branding Header
-	m.Row(20, func() {
+	headerBg := color.Color{Red: 245, Green: 247, Blue: 250}
+	darkBlue := color.Color{Red: 44, Green: 62, Blue: 80}
+
+	m.Row(15, func() {
 		m.Col(12, func() {
-			m.Text("VAELIA ESL LESSON PLAN", props.Text{
+			m.Text("VAELIA FORGE - LESSON PLAN", props.Text{
 				Top:   5,
-				Size:  20,
+				Size:  16,
 				Style: consts.Bold,
 				Align: consts.Center,
-				Color: color.Color{Red: 44, Green: 62, Blue: 80},
+				Color: darkBlue,
 			})
 		})
 	})
 
-	// 2. Parser Logic
 	lines := strings.Split(content, "\n")
+	var metadata = make(map[string]string)
+	var bodyLines []string
+
 	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.Contains(trimmed, ":") && (strings.HasPrefix(trimmed, "TOPIC") || strings.HasPrefix(trimmed, "LEVEL") || strings.HasPrefix(trimmed, "SUBJECT")) {
+			parts := strings.SplitN(trimmed, ":", 2)
+			metadata[strings.ToUpper(parts[0])] = strings.TrimSpace(parts[1])
+		} else {
+			bodyLines = append(bodyLines, line)
+		}
+	}
+
+	m.Row(12, func() {
+		m.Col(4, func() { m.Text("Subject: "+metadata["SUBJECT"], props.Text{Size: 10, Style: consts.Bold}) })
+		m.Col(4, func() { m.Text("Topic: "+metadata["TOPIC"], props.Text{Size: 10, Style: consts.Bold}) })
+		m.Col(4, func() { m.Text("Level: "+metadata["LEVEL"], props.Text{Size: 10, Style: consts.Bold}) })
+	})
+	m.Line(1.0)
+
+	var tableRows [][]string
+ 	inStructure := false
+
+	for _, line := range bodyLines {
 		line = strings.TrimSpace(line)
-		if line == "" {
+		if line == "" { continue }
+
+		if strings.HasPrefix(strings.ToUpper(line), "STRUCTURE") {
+			inStructure = true
 			continue
 		}
 
-		// Handle Headers
+		if inStructure {
+			parts := strings.Split(line, "|")
+			if len(parts) >= 2 {
+				row := []string{}
+				for _, p := range parts { row = append(row, strings.TrimSpace(p)) }
+				tableRows = append(tableRows, row)
+				continue
+			} else { inStructure = false }
+		}
+
 		if strings.HasPrefix(line, "##") {
-			headerText := strings.TrimSpace(strings.TrimPrefix(line, "##"))
 			m.Row(12, func() {
-				m.Col(12, func() {
-					m.Text(headerText, props.Text{
-						Size:  14,
-						Style: consts.Bold,
-						Align: consts.Left,
-					})
-				})
-			})
-			m.Line(1.0) // Decorative separator
-		} else if strings.HasPrefix(line, "*") || strings.HasPrefix(line, "-") {
-			// Handle Bullet Points
-			bulletText := strings.TrimSpace(line[1:])
-			m.Row(8, func() {
-				m.Col(12, func() {
-					m.Text("• "+bulletText, props.Text{
-						Size:  11,
-						Align: consts.Left,
-						Left:  5,
-					})
-				})
+				m.Col(12, func() { m.Text(strings.TrimSpace(strings.TrimPrefix(line, "##")), props.Text{Size: 12, Style: consts.Bold, Top: 5}) })
 			})
 		} else {
-			// Standard Paragraph
-			m.Row(10, func() {
-				m.Col(12, func() {
-					m.Text(line, props.Text{
-						Size:  11,
-						Align: consts.Left,
-					})
-				})
-			})
+			m.Row(8, func() { m.Col(12, func() { m.Text(line, props.Text{Size: 10}) }) })
 		}
 	}
 
-	// 3. File Persistence
-	dir := "./output"
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return "", err
+	if len(tableRows) > 0 {
+		m.Row(10, func() { m.Col(12, func() { m.Text("Lesson Structure:", props.Text{Size: 12, Style: consts.Bold, Top: 10}) }) })
+		header := []string{"Time", "Activities / Tasks", "Teaching Approach"}
+		m.TableList(header, tableRows, props.TableList{
+			HeaderProp: props.TableListContent{Size: 9, GridSizes: []uint{2, 6, 4}},
+			ContentProp: props.TableListContent{Size: 9, GridSizes: []uint{2, 6, 4}},
+			Align: consts.Left,
+			// Changed from AlternativeBackground to AlternatedBackground
+			AlternatedBackground: &headerBg, 
+		})
 	}
 
+	dir := "./output"
+	_ = os.MkdirAll(dir, 0755)
 	filename := fmt.Sprintf("lesson_%s_%d.pdf", userID, os.Getpid())
 	path := filepath.Join(dir, filename)
 
-	err := m.OutputFileAndClose(path)
-	if err != nil {
-		return "", err
-	}
-
+	if err := m.OutputFileAndClose(path); err != nil { return "", err }
 	return path, nil
 }
