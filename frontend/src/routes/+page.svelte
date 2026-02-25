@@ -10,38 +10,37 @@
     let email = $state("");
     let isGenerating = $state(false);
     let prompt = $state("");
-    let includeImages = $state(false);
     let genMode = $state("lesson");
     let history = $state<any[]>([]);
     let downloadUrl = $state("");
 
-    const BACKEND_URL = "https://your-backend-service.railway.app";
-
-    let creditCost = $derived(genMode === "lesson" ? 1 : includeImages ? 2 : 1);
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
 
     onMount(() => {
         if (!isSupabaseConfigured) return;
-        const setupAuth = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                isLoggedIn = true;
-                email = user.email || "";
-                await refreshCredits(user.id);
-                await fetchHistory(user.id);
+        
+        const checkUser = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                await handleAuthStateChange(session);
             }
-            return supabase.auth.onAuthStateChange((_event, session) => {
-                handleAuthStateChange(session);
-            });
         };
-        setupAuth();
+
+        checkUser();
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            handleAuthStateChange(session);
+        });
+
+        return () => subscription.unsubscribe();
     });
 
     async function handleAuthStateChange(session: any) {
         if (session) {
             isLoggedIn = true;
             email = session.user.email || "";
-            await refreshCredits(session.user.id);
-            await fetchHistory(session.user.id);
+            await refreshCredits();
+            await fetchHistory();
         } else {
             isLoggedIn = false;
             email = "";
@@ -50,12 +49,12 @@
         }
     }
 
-    async function refreshCredits(userId: string) {
+    async function refreshCredits() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
 
         try {
-            const response = await fetch(`${BACKEND_URL}/api/user/credits`, {
+            const response = await fetch("/api/user/credits", {
                 headers: {
                     "Authorization": `Bearer ${session.access_token}`
                 }
@@ -65,15 +64,18 @@
                 credits = data.credits;
             }
         } catch (err) {
-            console.error("Error refreshing credits:", err);
+            console.error("Failed to fetch credits from Vercel function");
         }
     }
 
-    async function fetchHistory(userId: string) {
+    async function fetchHistory() {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
         const { data, error } = await supabase
             .from('generations')
             .select('*')
-            .eq('user_id', userId)
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
         
         if (!error && data) {
@@ -82,15 +84,16 @@
     }
 
     async function handleGenerate() {
-        if (!isLoggedIn || !prompt) return;
+        if (!isLoggedIn || !prompt || isGenerating) return;
+        
         isGenerating = true;
         downloadUrl = "";
 
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) throw new Error("Not authenticated");
+            if (!session) throw new Error("Please log in again.");
 
-            const response = await fetch(`${BACKEND_URL}/api/generate`, {
+            const response = await fetch("/api/generate", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -103,20 +106,20 @@
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || "Generation failed");
+                const errorText = await response.text();
+                throw new Error(errorText || "Server error");
             }
 
             const data = await response.json();
-            downloadUrl = data.file;
             
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                await refreshCredits(user.id);
-                await fetchHistory(user.id);
+            if (data.file) {
+                downloadUrl = data.file;
+                await refreshCredits();
+                await fetchHistory();
             }
         } catch (err: any) {
-            alert(err.message);
+            console.error("Generation error:", err);
+            alert("Forge Failed: " + err.message);
         } finally {
             isGenerating = false;
         }
@@ -153,21 +156,19 @@
                         <div class="relative">
                             <textarea
                                 bind:value={prompt}
-                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson about past tense for intermediate students..." : "e.g., 5 slides about sustainable energy for high schoolers..."}
-                                class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
+                                placeholder={genMode === 'lesson' ? "Describe your lesson..." : "Describe your slides..."}
+                                class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700"
                             ></textarea>
                         </div>
 
                         <div class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
                             <div class="flex items-center gap-3">
-                                <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                    </svg>
+                                <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                                    !
                                 </div>
                                 <div>
                                     <p class="text-sm font-bold text-slate-900">Cost: {creditCost} Credits</p>
-                                    <p class="text-xs text-slate-500">Current Balance: {credits}</p>
+                                    <p class="text-xs text-slate-500">Balance: {credits}</p>
                                 </div>
                             </div>
                             
@@ -180,11 +181,8 @@
                         </div>
 
                         {#if downloadUrl}
-                            <div class="animate-bounce flex justify-center mt-4">
-                                <a href={downloadUrl} target="_blank" class="bg-accent text-primary font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4\" />
-                                    </svg>
+                            <div class="flex justify-center mt-4">
+                                <a href={downloadUrl} target="_blank" class="bg-emerald-500 text-white font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2 hover:bg-emerald-600 transition-colors">
                                     Download Ready
                                 </a>
                             </div>
@@ -193,33 +191,18 @@
                 </div>
 
                 <div class="space-y-4">
-                    <h3 class="text-xl font-bold text-slate-900">Your Forge History</h3>
+                    <h3 class="text-xl font-bold text-slate-900">History</h3>
                     {#if history.length === 0}
                         <EmptyState />
                     {:else}
                         {#each history as item}
-                            <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/5 group-hover:text-primary transition-colors">
-                                        {#if item.file_path?.endsWith('.pptx')}
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                                            </svg>
-                                        {:else}
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                            </svg>
-                                        {/if}
-                                    </div>
-                                    <div>
-                                        <p class="font-bold text-slate-900 line-clamp-1">{item.prompt}</p>
-                                        <p class="text-xs text-slate-400">{new Date(item.created_at).toLocaleDateString()}</p>
-                                    </div>
+                            <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between shadow-sm">
+                                <div>
+                                    <p class="font-bold text-slate-900">{item.prompt.substring(0, 50)}...</p>
+                                    <p class="text-xs text-slate-400">{new Date(item.created_at).toLocaleDateString()}</p>
                                 </div>
-                                <a href={item.file_path} target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
+                                <a href={item.file_path} target="_blank" class="text-primary font-bold hover:underline">
+                                    Download
                                 </a>
                             </div>
                         {/each}
@@ -229,14 +212,12 @@
 
             <div class="lg:col-span-4">
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl sticky top-8">
-                    <h3 class="text-xl font-bold mb-2">Fuel Your Forge</h3>
-                    <p class="text-white/70 text-sm mb-8">Unlock unlimited creativity.</p>
-                    <div class="space-y-4">
-                        <button onclick={() => handleBuy('https://buy.stripe.com/9B600lb2D6951Io1JsbjW03')} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
+                    <h3 class="text-xl font-bold mb-2">Buy Credits</h3>
+                    <div class="space-y-4 mt-6">
+                        <button onclick={() => handleBuy('https://buy.stripe.com/9B600lb2D6951Io1JsbjW03')} class="w-full bg-white text-primary font-bold py-4 rounded-2xl hover:bg-slate-100">
                             10 Credits | $9.99
                         </button>
-                        <button onclick={() => handleBuy('https://buy.stripe.com/9B64gBb2D695eva3RAbjW04')} class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all">
-                            <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-primary text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-black">Best Value</span>
+                        <button onclick={() => handleBuy('https://buy.stripe.com/9B64gBb2D695eva3RAbjW04')} class="w-full bg-yellow-400 text-primary font-bold py-4 rounded-2xl hover:bg-yellow-500">
                             50 Credits | $39.99
                         </button>
                     </div>
