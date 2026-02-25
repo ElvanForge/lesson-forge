@@ -2,7 +2,7 @@
   "version": 2,
   "functions": {
     "api/main.go": {
-      "runtime": "go @1.22"
+      "runtime": "go@1.22"
     }
   },
   "rewrites": [
