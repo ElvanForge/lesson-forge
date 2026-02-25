@@ -10,7 +10,7 @@
     let email = $state("");
     let isGenerating = $state(false);
     let prompt = $state("");
-    let includeImages = $state(false); // Restored
+    let includeImages = $state(false);
     let genMode = $state("lesson");
     let history = $state<any[]>([]);
     let downloadUrl = $state("");
@@ -21,7 +21,7 @@
         if (!isSupabaseConfigured) return;
         
         supabase.auth.getSession().then(({ data: { session } }) => {
-            if (session) handleAuthStateChange(session);
+            handleAuthStateChange(session);
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -42,6 +42,7 @@
             email = "";
             credits = 0;
             history = [];
+            downloadUrl = "";
         }
     }
 
@@ -52,9 +53,11 @@
             const response = await fetch("/api/user/credits", {
                 headers: { "Authorization": `Bearer ${session.access_token}` }
             });
-            const data = await response.json();
-            credits = data.credits;
-        } catch (e) { console.error("Credit fetch failed"); }
+            if (response.ok) {
+                const data = await response.json();
+                credits = data.credits;
+            }
+        } catch (e) { console.error(e); }
     }
 
     async function fetchHistory() {
@@ -86,7 +89,7 @@
             await refreshCredits();
             await fetchHistory();
         } catch (err) {
-            alert("Error: " + err);
+            alert(err);
         } finally {
             isGenerating = false;
         }
@@ -123,7 +126,7 @@
                         <div class="relative">
                             <textarea
                                 bind:value={prompt}
-                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson..." : "e.g., 5 slides about..."}
+                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson about past tense for intermediate students..." : "e.g., 5 slides about sustainable energy for high schoolers..."}
                                 class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
                             ></textarea>
                         </div>
@@ -152,6 +155,7 @@
                         {#if downloadUrl}
                             <div class="animate-bounce flex justify-center mt-4">
                                 <a href={downloadUrl} target="_blank" class="bg-accent text-primary font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                     Download Ready
                                 </a>
                             </div>
@@ -167,17 +171,20 @@
                         {#each history as item}
                             <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
                                 <div class="flex items-center gap-4">
-                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
-                                        </div>
+                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/5 group-hover:text-primary transition-colors">
+                                        {#if item.file_path?.includes('.pptx')}
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" /></svg>
+                                        {:else}
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                        {/if}
+                                    </div>
                                     <div>
                                         <p class="font-bold text-slate-900 line-clamp-1">{item.prompt}</p>
                                         <p class="text-xs text-slate-400">{new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
                                 </div>
                                 <a href={item.file_path} target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                 </a>
                             </div>
                         {/each}
@@ -188,7 +195,8 @@
             <div class="lg:col-span-4">
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl sticky top-8">
                     <h3 class="text-xl font-bold mb-2">Fuel Your Forge</h3>
-                    <div class="space-y-4 mt-8">
+                    <p class="text-white/70 text-sm mb-8">Unlock unlimited creativity.</p>
+                    <div class="space-y-4">
                         <button onclick={() => handleBuy('https://buy.stripe.com/9B600lb2D6951Io1JsbjW03')} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
                         </button>

@@ -8,9 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -22,7 +22,9 @@ func main() {
 
 	dbURL := os.Getenv("DATABASE_URL")
 	port := os.Getenv("PORT")
-	if port == "" { port = "8080" }
+	if port == "" {
+		port = "8080"
+	}
 
 	var err error
 	pool, err = pgxpool.New(context.Background(), dbURL)
@@ -40,9 +42,10 @@ func main() {
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
 	bucket := "generated-files"
-	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, fileName)
 
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	req, _ := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("Content-Type", contentType)
@@ -54,11 +57,11 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("upload failed with status: %d", resp.StatusCode)
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		return "", fmt.Errorf("upload failed: %d", resp.StatusCode)
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", supabaseURL, bucket, fileName), nil
 }
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -70,36 +73,57 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Prompt string `json:"prompt"`
 		Mode   string `json:"mode"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
 
 	creditCost := 1
-	if req.Mode == "ppt" { creditCost = 2 }
+	if req.Mode == "ppt" {
+		creditCost = 2
+	}
 
 	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", creditCost, userID)
 	if err != nil || res.RowsAffected() == 0 {
-		http.Error(w, "Insufficient credits", 402)
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Insufficient credits"})
 		return
 	}
 
 	provider := GetAIProvider()
-	content, _ := provider.GenerateContent(ctx, req.Prompt)
+	content, err := provider.GenerateContent(ctx, req.Prompt)
+	if err != nil {
+		http.Error(w, "AI failed", 500)
+		return
+	}
 
 	var fileData []byte
 	var fileName string
 	var contentType string
 
 	if req.Mode == "ppt" {
-		fileData, fileName, err = GeneratePPTX(userID, content)
+		localPath, err := GeneratePPTX(userID, content)
+		if err != nil {
+			http.Error(w, "PPTX error", 500)
+			return
+		}
+		fileData, _ = os.ReadFile(localPath)
+		fileName = filepath.Base(localPath)
 		contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		fileData, fileName, err = GeneratePDF(userID, content)
+		localPath, err := GeneratePDF(userID, content)
+		if err != nil {
+			http.Error(w, "PDF error", 500)
+			return
+		}
+		fileData, _ = os.ReadFile(localPath)
+		fileName = filepath.Base(localPath)
 		contentType = "application/pdf"
 	}
 
 	publicURL, err := uploadToSupabase(fileData, fileName, contentType)
 	if err != nil {
-		log.Printf("Upload Error: %v", err)
-		http.Error(w, "Storage Upload Failed", 500)
+		http.Error(w, "Storage error", 500)
 		return
 	}
 
@@ -112,16 +136,24 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
-		if len(authHeader) < 8 { http.Error(w, "Unauthorized", 401); return }
+		if len(authHeader) < 8 {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
 		token := authHeader[7:]
 		client := &http.Client{Timeout: 5 * time.Second}
 		req, _ := http.NewRequest("GET", os.Getenv("SUPABASE_URL")+"/auth/v1/user", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 		resp, err := client.Do(req)
-		if err != nil || resp.StatusCode != 200 { http.Error(w, "Auth failed", 401); return }
+		if err != nil || resp.StatusCode != 200 {
+			http.Error(w, "Auth failed", 401)
+			return
+		}
 		defer resp.Body.Close()
-		var user struct{ ID string `json:"id"` }
+		var user struct {
+			ID string `json:"id"`
+		}
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
 		next.ServeHTTP(w, r)
@@ -131,16 +163,22 @@ func authMiddleware(next http.Handler) http.Handler {
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var balance int
-	pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
+	err := pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
+	if err != nil {
+		balance = 0
+	}
 	json.NewEncoder(w).Encode(map[string]int{"credits": balance})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "https://forge.vaelia.app")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		if r.Method == "OPTIONS" { return }
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }
