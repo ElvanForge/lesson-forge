@@ -1,6 +1,6 @@
 module github.com/ElvanForge/lesson-forge/backend
 
-go 1.24.0
+go 1.22.0
 
 require (
 	baliance.com/gooxml v1.0.1
