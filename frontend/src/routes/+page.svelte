@@ -43,6 +43,7 @@
             credits = 0;
             history = [];
             downloadUrl = "";
+            prompt = "";
         }
     }
 
@@ -107,7 +108,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
             <div class="lg:col-span-8 space-y-8">
                 <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-                    <h2 class="text-2xl font-bold text-slate-900 mb-6">Create New Content</h2>
+                    <h2 class="text-2xl font-bold text-slate-900 mb-6">Lesson Forge</h2>
                     
                     <div class="space-y-6">
                         <div class="flex p-1 bg-slate-100 rounded-2xl w-fit">
@@ -126,7 +127,7 @@
                         <div class="relative">
                             <textarea
                                 bind:value={prompt}
-                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson..." : "e.g., 5 slides about..."}
+                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson about past tense..." : "e.g., 5 slides about sustainable energy..."}
                                 class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
                             ></textarea>
                         </div>
@@ -146,7 +147,7 @@
                             
                             <Button 
                                 onclick={handleGenerate} 
-                                disabled={isGenerating || !prompt || credits < creditCost}
+                                disabled={isGenerating || !prompt || (isLoggedIn && credits < creditCost)}
                                 variant="primary">
                                 {isGenerating ? "Forging..." : "Forge Content"}
                             </Button>
@@ -170,7 +171,7 @@
                         {#each history as item}
                             <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
                                 <div class="flex items-center gap-4">
-                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/5 group-hover:text-primary transition-colors">
+                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
