@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,23 +26,21 @@ func main() {
 	var err error
 	pool, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		log.Fatalf("Database connection failed: %v", err)
+		log.Fatal(err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/generate", authMiddleware(http.HandlerFunc(handleGenerate)))
 	mux.Handle("GET /api/user/credits", authMiddleware(http.HandlerFunc(handleGetCredits)))
 
-	fmt.Printf("🚀 Server running on port %s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 }
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
 	bucket := "generated-files"
-	supabaseURL := os.Getenv("SUPABASE_URL")
-	uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, fileName)
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
 
-	req, _ := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
 	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("Content-Type", contentType)
@@ -55,11 +52,11 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return "", fmt.Errorf("upload failed: %d", resp.StatusCode)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("upload status: %d", resp.StatusCode)
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", supabaseURL, bucket, fileName), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil
 }
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -76,11 +73,9 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	creditCost := 1
 	if req.Mode == "ppt" { creditCost = 2 }
 
-	// Deduct credits and check balance
 	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", creditCost, userID)
 	if err != nil || res.RowsAffected() == 0 {
-		w.WriteHeader(http.StatusPaymentRequired)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Insufficient credits"})
+		http.Error(w, "Insufficient credits", 402)
 		return
 	}
 
@@ -92,20 +87,16 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var contentType string
 
 	if req.Mode == "ppt" {
-		localPath, _ := GeneratePPTX(userID, content)
-		fileData, _ = os.ReadFile(localPath)
-		fileName = filepath.Base(localPath)
+		fileData, fileName, err = GeneratePPTX(userID, content)
 		contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		localPath, _ := GeneratePDF(userID, content)
-		fileData, _ = os.ReadFile(localPath)
-		fileName = filepath.Base(localPath)
+		fileData, fileName, err = GeneratePDF(userID, content)
 		contentType = "application/pdf"
 	}
 
 	publicURL, err := uploadToSupabase(fileData, fileName, contentType)
 	if err != nil {
-		http.Error(w, "Cloud upload failed", 500)
+		http.Error(w, "Storage Upload Failed", 500)
 		return
 	}
 
@@ -143,9 +134,9 @@ func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", "https://forge.vaelia.app")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" { w.WriteHeader(http.StatusOK); return }
 		next.ServeHTTP(w, r)
 	})

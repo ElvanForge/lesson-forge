@@ -38,7 +38,6 @@
             await refreshCredits();
             await fetchHistory();
         } else {
-            // FIX: Fully wipe state on sign out
             isLoggedIn = false;
             email = "";
             credits = 0;
@@ -46,6 +45,10 @@
             downloadUrl = "";
             prompt = "";
         }
+    }
+
+    async function handleSignOut() {
+        await supabase.auth.signOut();
     }
 
     async function refreshCredits() {
@@ -60,7 +63,7 @@
                 credits = data.credits;
             }
         } catch (e) {
-            console.error("Failed to fetch credits");
+            console.error(e);
         }
     }
 
@@ -96,7 +99,7 @@
             await refreshCredits();
             await fetchHistory();
         } catch (err) {
-            alert("Error: " + err);
+            alert(err);
         } finally {
             isGenerating = false;
         }
@@ -108,7 +111,13 @@
 </script>
 
 <div class="min-h-screen bg-[#F8FAFC]">
-    <Header {isLoggedIn} {credits} {email} />
+    <Header 
+        {isLoggedIn} 
+        {credits} 
+        {email} 
+        title="Lesson Forge" 
+        onSignOut={handleSignOut} 
+    />
 
     <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
@@ -133,7 +142,7 @@
                         <div class="relative">
                             <textarea
                                 bind:value={prompt}
-                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson about past tense..." : "e.g., 5 slides about sustainable energy..."}
+                                placeholder={genMode === 'lesson' ? "e.g., A 45-minute ESL lesson..." : "e.g., 5 slides about..."}
                                 class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
                             ></textarea>
                         </div>
