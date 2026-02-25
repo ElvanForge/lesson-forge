@@ -27,13 +27,14 @@ func main() {
 	var err error
 	pool, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		log.Fatalf("Connection failed: %v", err)
+		log.Fatalf("Database connection failed: %v", err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/generate", authMiddleware(http.HandlerFunc(handleGenerate)))
 	mux.Handle("GET /api/user/credits", authMiddleware(http.HandlerFunc(handleGetCredits)))
 
+	fmt.Printf("🚀 Server running on port %s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 }
 
@@ -55,7 +56,7 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return "", fmt.Errorf("upload status: %d", resp.StatusCode)
+		return "", fmt.Errorf("upload failed: %d", resp.StatusCode)
 	}
 
 	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", supabaseURL, bucket, fileName), nil
@@ -75,9 +76,11 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	creditCost := 1
 	if req.Mode == "ppt" { creditCost = 2 }
 
+	// Deduct credits and check balance
 	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", creditCost, userID)
 	if err != nil || res.RowsAffected() == 0 {
-		http.Error(w, "Insufficient credits", 402)
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Insufficient credits"})
 		return
 	}
 
@@ -102,7 +105,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	publicURL, err := uploadToSupabase(fileData, fileName, contentType)
 	if err != nil {
-		http.Error(w, "Storage failed", 500)
+		http.Error(w, "Cloud upload failed", 500)
 		return
 	}
 

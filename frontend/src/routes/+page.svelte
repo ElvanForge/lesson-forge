@@ -38,6 +38,7 @@
             await refreshCredits();
             await fetchHistory();
         } else {
+            // FIX: Fully wipe state on sign out
             isLoggedIn = false;
             email = "";
             credits = 0;
@@ -58,13 +59,18 @@
                 const data = await response.json();
                 credits = data.credits;
             }
-        } catch (e) {}
+        } catch (e) {
+            console.error("Failed to fetch credits");
+        }
     }
 
     async function fetchHistory() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        const { data } = await supabase.from('generations').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+        const { data } = await supabase.from('generations')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
         if (data) history = data;
     }
 
@@ -90,7 +96,7 @@
             await refreshCredits();
             await fetchHistory();
         } catch (err) {
-            alert(err);
+            alert("Error: " + err);
         } finally {
             isGenerating = false;
         }
@@ -171,7 +177,7 @@
                         {#each history as item}
                             <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
                                 <div class="flex items-center gap-4">
-                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
+                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/5 group-hover:text-primary transition-colors">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                                         </svg>
