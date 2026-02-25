@@ -27,21 +27,19 @@ func main() {
 	var err error
 	pool, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
-		log.Fatalf("Database connection failed: %v", err)
+		log.Fatal(err)
 	}
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /api/generate", authMiddleware(http.HandlerFunc(handleGenerate)))
 	mux.Handle("GET /api/user/credits", authMiddleware(http.HandlerFunc(handleGetCredits)))
 
-	fmt.Printf("🚀 Server running on port %s\n", port)
 	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 }
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
 	bucket := "generated-files"
 	supabaseURL := os.Getenv("SUPABASE_URL")
-	// Construction of the upload URL for Supabase Storage API 
 	uploadURL := fmt.Sprintf("%s/storage/v1/object/%s/%s", supabaseURL, bucket, fileName)
 
 	req, _ := http.NewRequest("POST", uploadURL, bytes.NewReader(fileBytes))
@@ -57,10 +55,9 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 && resp.StatusCode != 201 {
-		return "", fmt.Errorf("upload failed with status: %d", resp.StatusCode)
+		return "", fmt.Errorf("error %d", resp.StatusCode)
 	}
 
-	// Returns the public URL that the frontend can download directly 
 	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", supabaseURL, bucket, fileName), nil
 }
 
@@ -91,7 +88,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var fileName string
 	var contentType string
 
-	// Generate the file locally first, then read the bytes for upload 
 	if req.Mode == "ppt" {
 		localPath, _ := GeneratePPTX(userID, content)
 		fileData, _ = os.ReadFile(localPath)
@@ -106,7 +102,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	publicURL, err := uploadToSupabase(fileData, fileName, contentType)
 	if err != nil {
-		http.Error(w, "Storage Upload Failed", 500)
+		http.Error(w, "Upload failed", 500)
 		return
 	}
 
@@ -128,7 +124,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != 200 { http.Error(w, "Auth failed", 401); return }
 		defer resp.Body.Close()
-		var user struct{ ID string `json:"id"` }
+		var user struct{ ID string `json:\"id\"` }
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
 		next.ServeHTTP(w, r)
@@ -144,7 +140,7 @@ func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Updated for broader environment support
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
 		if r.Method == "OPTIONS" { w.WriteHeader(http.StatusOK); return }
