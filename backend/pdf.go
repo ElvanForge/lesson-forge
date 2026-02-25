@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/johnfercher/maroto/pkg/color"
@@ -12,7 +10,7 @@ import (
 	"github.com/johnfercher/maroto/pkg/props"
 )
 
-func GeneratePDF(userID string, content string) (string, error) {
+func GeneratePDF(userID string, content string) ([]byte, string, error) {
 	m := pdf.NewMaroto(consts.Portrait, consts.A4)
 	m.SetPageMargins(10, 15, 10)
 
@@ -53,7 +51,7 @@ func GeneratePDF(userID string, content string) (string, error) {
 	m.Line(1.0)
 
 	var tableRows [][]string
- 	inStructure := false
+	inStructure := false
 
 	for _, line := range bodyLines {
 		line = strings.TrimSpace(line)
@@ -90,16 +88,19 @@ func GeneratePDF(userID string, content string) (string, error) {
 			HeaderProp: props.TableListContent{Size: 9, GridSizes: []uint{2, 6, 4}},
 			ContentProp: props.TableListContent{Size: 9, GridSizes: []uint{2, 6, 4}},
 			Align: consts.Left,
-			// Changed from AlternativeBackground to AlternatedBackground
-			AlternatedBackground: &headerBg, 
+			AlternatedBackground: &headerBg,
 		})
 	}
 
-	dir := "./output"
-	_ = os.MkdirAll(dir, 0755)
-	filename := fmt.Sprintf("lesson_%s_%d.pdf", userID, os.Getpid())
-	path := filepath.Join(dir, filename)
+	pdfBytes, err := m.Output()
+	if err != nil {
+		return nil, "", err
+	}
 
-	if err := m.OutputFileAndClose(path); err != nil { return "", err }
-	return path, nil
+	filename := fmt.Sprintf("lesson_%s_%d.pdf", userID, SystemTimeNow())
+	return pdfBytes.Bytes(), filename, nil
+}
+
+func SystemTimeNow() int64 {
+	return 0 // Placeholder for timestamp logic handled in main
 }

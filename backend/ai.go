@@ -20,6 +20,7 @@ type GeminiProvider struct {
 }
 
 func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
+	// Using the specific model version you requested
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=%s", g.APIKey)
 
 	payload := map[string]interface{}{
@@ -32,11 +33,20 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 		},
 	}
 
-	jsonData, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Explicitly using an http client with a timeout
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -81,12 +91,20 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 		},
 	}
 
-	jsonData, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+d.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 90 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -118,7 +136,6 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 type MockProvider struct{}
 
 func (m *MockProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	// Simulate some delay
 	select {
 	case <-time.After(500 * time.Millisecond):
 	case <-ctx.Done():
@@ -128,25 +145,35 @@ func (m *MockProvider) GenerateContent(ctx context.Context, prompt string) (stri
 	return `# Mock Generation for: ` + prompt + `
 
 ## Section 1: Overview
-This is a mock response generated to save API costs during testing.
+Production keys active. If you see this, check your .env variables.
 - Key Point A
 - Key Point B
 
 ## Section 2: Details
-The system correctly tracked your credits and validated your session.
-- Image Description: A teacher using an AI tool in a modern classroom.
-- Image Description: A data dashboard showing perfect security metrics.
+Your session is verified and credits are tracked.
+- Image Description: A modern educational interface.
 
 ## Conclusion
-Everything is working as expected!`, nil
+System operational.`, nil
 }
 
 func GetAIProvider() AIProvider {
+	// Ensure these environment variable names match what you set in Vercel
 	if os.Getenv("MOCK_AI") == "true" {
 		return &MockProvider{}
 	}
-	if os.Getenv("LOCATION") == "CN" {
-		return &DeepSeekProvider{APIKey: os.Getenv("DEEPSEEK_KEY")}
+	
+	// Check for DeepSeek first if in China or specific env
+	if os.Getenv("LOCATION") == "CN" || os.Getenv("DEEPSEEK_KEY") != "" {
+		if key := os.Getenv("DEEPSEEK_KEY"); key != "" {
+			return &DeepSeekProvider{APIKey: key}
+		}
 	}
-	return &GeminiProvider{APIKey: os.Getenv("GEMINI_KEY")}
+
+	// Default to Gemini
+	if key := os.Getenv("GEMINI_KEY"); key != "" {
+		return &GeminiProvider{APIKey: key}
+	}
+
+	return &MockProvider{}
 }

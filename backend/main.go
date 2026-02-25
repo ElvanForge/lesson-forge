@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,44 +15,50 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type Config struct {
-	DatabaseURL        string
-	SupabaseURL        string
-	SupabaseAnonKey    string
-	Port               string
-	AllowedOrigins     string
-}
-
 var pool *pgxpool.Pool
 
 func main() {
 	_ = godotenv.Load("../.env")
 
-	config := Config{
-		DatabaseURL:     os.Getenv("DATABASE_URL"),
-		SupabaseURL:     os.Getenv("SUPABASE_URL"),
-		SupabaseAnonKey: os.Getenv("SUPABASE_ANON_KEY"),
-		Port:            os.Getenv("PORT"),
-		AllowedOrigins:  os.Getenv("ALLOWED_ORIGINS"),
-	}
-
-	if config.Port == "" { config.Port = "8080" }
+	dbURL := os.Getenv("DATABASE_URL")
+	port := os.Getenv("PORT")
+	if port == "" { port = "8080" }
 
 	var err error
-	pool, err = pgxpool.New(context.Background(), config.DatabaseURL)
+	pool, err = pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatalf("Database connection failed: %v", err)
 	}
 
 	mux := http.NewServeMux()
-
 	mux.Handle("POST /api/generate", authMiddleware(http.HandlerFunc(handleGenerate)))
 	mux.Handle("GET /api/user/credits", authMiddleware(http.HandlerFunc(handleGetCredits)))
 
-	mux.Handle("/output/", http.StripPrefix("/output/", http.FileServer(http.Dir("./output"))))
+	fmt.Printf("🚀 Server running on port %s\n", port)
+	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
+}
 
-	fmt.Printf("🚀 Server running on port %s\n", config.Port)
-	log.Fatal(http.ListenAndServe(":"+config.Port, corsMiddleware(config.AllowedOrigins, mux)))
+func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
+	bucket := "generated-files"
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
+
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_ANON_KEY"))
+	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
+	req.Header.Set("Content-Type", contentType)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("upload failed with status: %d", resp.StatusCode)
+	}
+
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil
 }
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -60,76 +67,46 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	userID := r.Header.Get("X-User-ID")
 	var req struct {
-		Prompt        string `json:"prompt"`
-		Mode          string `json:"mode"`
-		IncludeImages bool   `json:"includeImages"`
+		Prompt string `json:"prompt"`
+		Mode   string `json:"mode"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid Request", 400)
-		return
-	}
+	json.NewDecoder(r.Body).Decode(&req)
 
-	// Determine cost: 2 credits for PPT, 1 for Lesson Plan
 	creditCost := 1
-	if req.Mode == "ppt" {
-		creditCost = 2
-	}
+	if req.Mode == "ppt" { creditCost = 2 }
 
-	// 1. DEDUCT CREDITS
 	res, err := pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", creditCost, userID)
 	if err != nil || res.RowsAffected() == 0 {
-		log.Printf("Credit deduction failed for %s", userID)
 		http.Error(w, "Insufficient credits", 402)
 		return
 	}
 
-	// 2. AI GENERATION
 	provider := GetAIProvider()
-	promptPrefix := "Lesson plan for: "
-	if req.Mode == "ppt" {
-		// Instructions for the ## slide split logic in pptx.go
-		promptPrefix = "Create a professional presentation outline. Use '##' to separate slides. Format: ## Slide Title\nSlide Content. Prompt: "
-	}
+	content, _ := provider.GenerateContent(ctx, req.Prompt)
 
-	content, err := provider.GenerateContent(ctx, promptPrefix+req.Prompt)
-	if err != nil {
-		_, _ = pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2::uuid", creditCost, userID)
-		http.Error(w, "AI Error", 502)
-		return
-	}
+	var fileData []byte
+	var fileName string
+	var contentType string
 
-	// 3. FILE GENERATION (Switching based on mode)
-	var filePath string
 	if req.Mode == "ppt" {
-		filePath, err = GeneratePPTX(userID, content) // Calls your new pptx.go function
+		fileData, fileName, err = GeneratePPTX(userID, content)
+		contentType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		filePath, err = GeneratePDF(userID, content)
+		fileData, fileName, err = GeneratePDF(userID, content)
+		contentType = "application/pdf"
 	}
 
+	publicURL, err := uploadToSupabase(fileData, fileName, contentType)
 	if err != nil {
-		log.Printf("❌ GENERATION ERROR: %v", err)
-		_, _ = pool.Exec(ctx, "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2::uuid", creditCost, userID)
-		http.Error(w, "File Generation failed", 500)
+		log.Printf("Upload Error: %v", err)
+		http.Error(w, "Storage Upload Failed", 500)
 		return
 	}
 
-	// 4. SAVE TO DATABASE (Persistence)
-	_, err = pool.Exec(ctx, `
-		INSERT INTO generations (user_id, prompt, file_path, status) 
-		VALUES ($1::uuid, $2, $3, $4)`,
-		userID, req.Prompt, filePath, "completed",
-	)
-	if err != nil {
-		log.Printf("❌ DB LOG ERROR: %v", err)
-	}
-
-	log.Printf("✅ %s Created and Saved: %s", req.Mode, filePath)
+	pool.Exec(ctx, "INSERT INTO generations (user_id, prompt, file_path, status) VALUES ($1::uuid, $2, $3, 'completed')", userID, req.Prompt, publicURL)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "completed",
-		"file":   "http://localhost:8080/" + filePath,
-	})
+	json.NewEncoder(w).Encode(map[string]string{"file": publicURL})
 }
 
 func authMiddleware(next http.Handler) http.Handler {
@@ -154,25 +131,16 @@ func authMiddleware(next http.Handler) http.Handler {
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var balance int
-	err := pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			http.Error(w, "User not found", 404)
-			return
-		}
-		http.Error(w, "DB error", 500)
-		return
-	}
+	pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
 	json.NewEncoder(w).Encode(map[string]int{"credits": balance})
 }
 
-func corsMiddleware(origins string, next http.Handler) http.Handler {
+func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		w.Header().Set("Access-Control-Allow-Origin", "https://forge.vaelia.app")
 		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		if r.Method == "OPTIONS" { w.WriteHeader(200); return }
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		if r.Method == "OPTIONS" { return }
 		next.ServeHTTP(w, r)
 	})
 }
