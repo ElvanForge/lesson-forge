@@ -1,11 +1,14 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/main.go" }
-  ],
   "functions": {
     "backend/main.go": {
       "runtime": "vercel-go@3.0.0"
     }
-  }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/backend/main.go"
+    }
+  ]
 }
