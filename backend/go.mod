@@ -1,4 +1,4 @@
-module github.com/Numpkens/elvan-forge-esl/backend
+module github.com/ElvanForge/lesson-forge/backend
 
 go 1.24.0
 
