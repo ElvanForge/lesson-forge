@@ -1,4 +1,4 @@
-module elvan-forge-esl/backend
+module github.com/Numpkens/elvan-forge-esl/backend
 
 go 1.24.0
 
