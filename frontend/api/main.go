@@ -56,43 +56,46 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", 400)
+		http.Error(w, "Invalid JSON body", 400)
 		return
 	}
 
-	// SAFETY CHECK 1: AI Provider
+	// DEBUG CHECK 1: AI Provider
 	provider := logic.GetAIProvider()
 	if provider == nil {
-		log.Println("CRITICAL: AI Provider is nil. Check OPENAI_API_KEY in Vercel.")
-		http.Error(w, "MISSING_AI_KEY: Check Vercel Environment Variables", 500)
+		log.Println("CRITICAL: GetAIProvider returned nil")
+		http.Error(w, "BACKEND_ERROR: AI Provider not initialized. Check OPENAI_API_KEY in Vercel.", 500)
 		return
 	}
 
+	// DEBUG CHECK 2: AI Generation
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
 		log.Printf("AI ERROR: %v", err)
-		http.Error(w, "AI failed to generate content", 500)
+		http.Error(w, fmt.Sprintf("AI_ERROR: %v", err), 500)
 		return
 	}
 
 	var data []byte
 	var name string
+	// Generate File
 	if req.Mode == "ppt" {
 		data, name, err = logic.GeneratePPTX(userID, content)
 	} else {
 		data, name, err = logic.GeneratePDF(userID, content)
 	}
 
+	// DEBUG CHECK 3: Document Builder
 	if err != nil {
 		log.Printf("DOC GEN ERROR: %v", err)
-		http.Error(w, "Failed to build document", 500)
+		http.Error(w, "DOC_GEN_ERROR: Logic package failed to build file", 500)
 		return
 	}
 
-	// SAFETY CHECK 2: Storage Key
+	// DEBUG CHECK 4: Storage
 	url, err := uploadToSupabase(data, name, req.Mode)
 	if err != nil {
-		log.Printf("UPLOAD ERROR: %v", err)
+		log.Printf("STORAGE ERROR: %v", err)
 		http.Error(w, "STORAGE_ERROR: "+err.Error(), 500)
 		return
 	}
@@ -100,7 +103,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"file": url})
 }
-
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var balance int
