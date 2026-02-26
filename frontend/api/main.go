@@ -56,53 +56,57 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid JSON body", 400)
+		http.Error(w, "Invalid request", 400)
 		return
 	}
 
-	// DEBUG CHECK 1: AI Provider
 	provider := logic.GetAIProvider()
 	if provider == nil {
-		log.Println("CRITICAL: GetAIProvider returned nil")
-		http.Error(w, "BACKEND_ERROR: AI Provider not initialized. Check OPENAI_API_KEY in Vercel.", 500)
+		log.Println("CRITICAL: AI Provider is nil")
+		http.Error(w, "AI configuration error", 500)
 		return
 	}
 
-	// DEBUG CHECK 2: AI Generation
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
 		log.Printf("AI ERROR: %v", err)
-		http.Error(w, fmt.Sprintf("AI_ERROR: %v", err), 500)
+		http.Error(w, "AI generation failed", 500)
 		return
 	}
 
 	var data []byte
 	var name string
-	// Generate File
+	var cType string
+
 	if req.Mode == "ppt" {
 		data, name, err = logic.GeneratePPTX(userID, content)
+		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
 		data, name, err = logic.GeneratePDF(userID, content)
+		cType = "application/pdf"
 	}
 
-	// DEBUG CHECK 3: Document Builder
 	if err != nil {
 		log.Printf("DOC GEN ERROR: %v", err)
-		http.Error(w, "DOC_GEN_ERROR: Logic package failed to build file", 500)
+		http.Error(w, "Failed to build document", 500)
 		return
 	}
 
-	// DEBUG CHECK 4: Storage
-	url, err := uploadToSupabase(data, name, req.Mode)
+	// Create a unique filename to prevent 400 Duplicate errors
+	timestamp := time.Now().Unix()
+	uniqueName := fmt.Sprintf("%d_%s", timestamp, name)
+
+	url, err := uploadToSupabase(data, uniqueName, cType)
 	if err != nil {
 		log.Printf("STORAGE ERROR: %v", err)
-		http.Error(w, "STORAGE_ERROR: "+err.Error(), 500)
+		http.Error(w, "Storage upload failed", 500)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"file": url})
 }
+
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var balance int
@@ -135,38 +139,39 @@ func authMiddleware(next http.Handler) http.Handler {
 		}
 		defer resp.Body.Close()
 		
-		var user struct{ ID string `json:"id"` }
+		var user struct{ ID string `json:\"id\"` }
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
 		next.ServeHTTP(w, r)
 	})
 }
 
-func uploadToSupabase(fileBytes []byte, fileName string, mode string) (string, error) {
-	cType := "application/pdf"
-	if mode == "ppt" {
-		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	}
-
+func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
+	bucketName := "generated-files"
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucketName, fileName)
+	
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	
 	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
 	if key == "" {
-		return "", fmt.Errorf("MISSING_SERVICE_ROLE_KEY")
+		key = os.Getenv("SUPABASE_ANON_KEY")
 	}
 
-	url := fmt.Sprintf("%s/storage/v1/object/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
 	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
-	req.Header.Set("Content-Type", cType)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("x-upsert", "true")
 
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil { return "", err }
+	if err != nil {
+		return "", err
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("Upload failed status: %d", resp.StatusCode)
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucketName, fileName), nil
 }
