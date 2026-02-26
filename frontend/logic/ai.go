@@ -20,7 +20,8 @@ type GeminiProvider struct {
 }
 
 func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=%s", g.APIKey)
+	// Fixed the model name to the stable alias 'gemini-2.0-flash-lite'
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=%s", g.APIKey)
 
 	payload := map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -111,7 +112,7 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 		return "", fmt.Errorf("failed to decode deepseek response: %v", err)
 	}
 
-	// SAFETY: Check for empty choices before indexing to prevent panic
+	// Safety check to handle empty balance or API errors
 	if len(result.Choices) == 0 {
 		if result.Error.Message != "" {
 			return "", fmt.Errorf("deepseek api error: %s", result.Error.Message)
@@ -139,7 +140,7 @@ func GetAIProvider(countryCode string) AIProvider {
 		}
 	}
 
-	// FALLBACK: Use Gemini for all other countries
+	// DEFAULT: Use Gemini for Georgia (GE) and all other countries
 	if key := os.Getenv("GEMINI_KEY"); key != "" {
 		return &GeminiProvider{APIKey: key}
 	}
