@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -20,7 +21,8 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	if pool == nil {
 		p, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 		if err != nil {
-			http.Error(w, "Database error", 500)
+			log.Printf("DATABASE ERROR: %v", err)
+			http.Error(w, "Database connection failed", 500)
 			return
 		}
 		pool = p
@@ -54,14 +56,23 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad request", 400)
+		http.Error(w, "Invalid request body", 400)
 		return
 	}
 
+	log.Printf("Starting generation for user %s with mode %s", userID, req.Mode)
+
 	provider := logic.GetAIProvider()
+	if provider == nil {
+		log.Printf("CRITICAL ERROR: AI Provider is nil. Check your API Keys in Vercel settings.")
+		http.Error(w, "AI configuration error", 500)
+		return
+	}
+
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
-		http.Error(w, "AI generation failed", 500)
+		log.Printf("AI GENERATION ERROR: %v", err)
+		http.Error(w, fmt.Sprintf("AI failed: %v", err), 500)
 		return
 	}
 
@@ -70,16 +81,23 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var cType string
 
 	if req.Mode == "ppt" {
-		data, name, _ = logic.GeneratePPTX(userID, content)
+		data, name, err = logic.GeneratePPTX(userID, content)
 		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		data, name, _ = logic.GeneratePDF(userID, content)
+		data, name, err = logic.GeneratePDF(userID, content)
 		cType = "application/pdf"
+	}
+
+	if err != nil {
+		log.Printf("DOCUMENT GENERATION ERROR: %v", err)
+		http.Error(w, "Failed to create document", 500)
+		return
 	}
 
 	url, err := uploadToSupabase(data, name, cType)
 	if err != nil {
-		http.Error(w, "Storage upload failed", 500)
+		log.Printf("SUPABASE UPLOAD ERROR: %v", err)
+		http.Error(w, "Failed to save file", 500)
 		return
 	}
 
@@ -106,16 +124,21 @@ func authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
+		
+		// Supabase Auth Check
 		req, _ := http.NewRequest("GET", os.Getenv("SUPABASE_URL")+"/auth/v1/user", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
+		
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != 200 {
-			http.Error(w, "Auth failed", 401)
+			log.Printf("AUTH ERROR: %v (Status: %d)", err, resp.StatusCode)
+			http.Error(w, "Authentication failed", 401)
 			return
 		}
 		defer resp.Body.Close()
+		
 		var user struct{ ID string `json:"id"` }
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
@@ -125,14 +148,21 @@ func authMiddleware(next http.Handler) http.Handler {
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
 	url := fmt.Sprintf("%s/storage/v1/object/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName)
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_ANON_KEY"))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	if err != nil { return "", err }
+
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_SERVICE_ROLE_KEY")) // Use service role for uploads
 	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("Content-Type", contentType)
+
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		return "", fmt.Errorf("upload failed")
+	if err != nil { return "", err }
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("storage upload failed with status %d", resp.StatusCode)
 	}
+
 	return fmt.Sprintf("%s/storage/v1/object/public/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName), nil
 }
