@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -62,7 +63,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	provider := logic.GetAIProvider()
 	if provider == nil {
-		log.Println("CRITICAL: AI Provider is nil")
 		http.Error(w, "AI configuration error", 500)
 		return
 	}
@@ -88,19 +88,26 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Printf("DOC GEN ERROR: %v", err)
-		http.Error(w, "Failed to build document", 500)
+		http.Error(w, "Document generation failed", 500)
 		return
 	}
 
-	// Create a unique filename to prevent 400 Duplicate errors
-	timestamp := time.Now().Unix()
-	uniqueName := fmt.Sprintf("%d_%s", timestamp, name)
-
+	// Unique filename to bypass caching and prevent duplicate name errors
+	uniqueName := fmt.Sprintf("%d_%s", time.Now().Unix(), name)
 	url, err := uploadToSupabase(data, uniqueName, cType)
 	if err != nil {
-		log.Printf("STORAGE ERROR: %v", err)
-		http.Error(w, "Storage upload failed", 500)
+		log.Printf("STORAGE UPLOAD CRITICAL ERROR: %v", err)
+		http.Error(w, "File storage failed", 500)
 		return
+	}
+
+	// Update Credits & History
+	tx, err := pool.Begin(r.Context())
+	if err == nil {
+		defer tx.Rollback(r.Context())
+		tx.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance - 1 WHERE id = $1::uuid", userID)
+		tx.Exec(r.Context(), "INSERT INTO generations (user_id, prompt, file_path, type) VALUES ($1, $2, $3, $4)", userID, req.Prompt, url, req.Mode)
+		tx.Commit(r.Context())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -139,7 +146,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		}
 		defer resp.Body.Close()
 		
-		var user struct{ ID string `json:\"id\"` }
+		var user struct{ ID string `json:"id"` }
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
 		next.ServeHTTP(w, r)
@@ -147,18 +154,20 @@ func authMiddleware(next http.Handler) http.Handler {
 }
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
-	bucketName := "generated-files"
-	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucketName, fileName)
+	bucket := "generated-files"
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
 	
-	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
-	
-	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
-	if key == "" {
-		key = os.Getenv("SUPABASE_ANON_KEY")
+	req, err := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	if err != nil {
+		return "", err
 	}
+	
+	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	anonKey := os.Getenv("SUPABASE_ANON_KEY")
 
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
+	// Standard Supabase Auth Headers
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+	req.Header.Set("apikey", anonKey)
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("x-upsert", "true")
 
@@ -170,8 +179,10 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("Upload failed status: %d", resp.StatusCode)
+		// LOG THE ACTUAL ERROR BODY FROM SUPABASE
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Supabase Status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucketName, fileName), nil
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil
 }
