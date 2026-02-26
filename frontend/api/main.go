@@ -52,6 +52,10 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
+	
+	// Detect country from Vercel Edge headers
+	countryCode := r.Header.Get("x-vercel-ip-country")
+
 	var req struct {
 		Prompt string `json:"prompt"`
 		Mode   string `json:"mode"`
@@ -61,7 +65,8 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := logic.GetAIProvider()
+	// Logic now determines provider based on country
+	provider := logic.GetAIProvider(countryCode)
 	if provider == nil {
 		http.Error(w, "AI configuration error", 500)
 		return
@@ -69,8 +74,9 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
-		log.Printf("AI ERROR: %v", err)
-		http.Error(w, "AI generation failed", 500)
+		log.Printf("AI ERROR (Country: %s): %v", countryCode, err)
+		// Return the actual error message (like "insufficient balance") to the frontend
+		http.Error(w, fmt.Sprintf("AI error: %v", err), 500)
 		return
 	}
 
@@ -92,16 +98,14 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Unique filename to bypass caching and prevent duplicate name errors
 	uniqueName := fmt.Sprintf("%d_%s", time.Now().Unix(), name)
 	url, err := uploadToSupabase(data, uniqueName, cType)
 	if err != nil {
-		log.Printf("STORAGE UPLOAD CRITICAL ERROR: %v", err)
-		http.Error(w, "File storage failed", 500)
+		log.Printf("STORAGE ERROR: %v", err)
+		http.Error(w, "Storage failure", 500)
 		return
 	}
 
-	// Update Credits & History
 	tx, err := pool.Begin(r.Context())
 	if err == nil {
 		defer tx.Rollback(r.Context())
@@ -138,7 +142,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 		
-		client := &http.Client{Timeout: 10 * time.Second}
+		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != 200 {
 			http.Error(w, "Auth failed", 401)
@@ -157,17 +161,9 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	bucket := "generated-files"
 	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
 	
-	req, err := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
-	if err != nil {
-		return "", err
-	}
-	
-	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
-	anonKey := os.Getenv("SUPABASE_ANON_KEY")
-
-	// Standard Supabase Auth Headers
-	req.Header.Set("Authorization", "Bearer "+serviceKey)
-	req.Header.Set("apikey", anonKey)
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_SERVICE_ROLE_KEY"))
+	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("x-upsert", "true")
 
@@ -179,9 +175,8 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		// LOG THE ACTUAL ERROR BODY FROM SUPABASE
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Supabase Status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("Supabase error %d: %s", resp.StatusCode, string(body))
 	}
 
 	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil

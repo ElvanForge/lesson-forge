@@ -63,7 +63,6 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 		return "", fmt.Errorf("failed to decode gemini response: %v", err)
 	}
 
-	// Safety check for Gemini
 	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
 		if result.Error.Message != "" {
 			return "", fmt.Errorf("gemini api error: %s", result.Error.Message)
@@ -112,7 +111,7 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 		return "", fmt.Errorf("failed to decode deepseek response: %v", err)
 	}
 
-	// Safety check for DeepSeek - Fixes the index out of range [0] panic
+	// SAFETY: Check for empty choices before indexing to prevent panic
 	if len(result.Choices) == 0 {
 		if result.Error.Message != "" {
 			return "", fmt.Errorf("deepseek api error: %s", result.Error.Message)
@@ -128,17 +127,22 @@ func (m *MockProvider) GenerateContent(ctx context.Context, prompt string) (stri
 	return "# Mock Content\nGenerated for: " + prompt, nil
 }
 
-func GetAIProvider() AIProvider {
+func GetAIProvider(countryCode string) AIProvider {
 	if os.Getenv("MOCK_AI") == "true" {
 		return &MockProvider{}
 	}
-	// Prioritize DeepSeek if key is present
-	if key := os.Getenv("DEEPSEEK_KEY"); key != "" {
-		return &DeepSeekProvider{APIKey: key}
+
+	// ROUTING: DeepSeek is ONLY for China (CN)
+	if countryCode == "CN" {
+		if key := os.Getenv("DEEPSEEK_KEY"); key != "" {
+			return &DeepSeekProvider{APIKey: key}
+		}
 	}
-	// Fallback to Gemini
+
+	// FALLBACK: Use Gemini for all other countries
 	if key := os.Getenv("GEMINI_KEY"); key != "" {
 		return &GeminiProvider{APIKey: key}
 	}
+
 	return &MockProvider{}
 }
