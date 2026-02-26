@@ -1,4 +1,4 @@
-import { a2 as attr, $ as attr_class, e as escape_html, a1 as stringify } from "./index.js";
+import { a0 as attr, $ as attr_class, e as escape_html, a2 as stringify } from "./index.js";
 function Button($$renderer, $$props) {
   let {
     text,

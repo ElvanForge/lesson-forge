@@ -1,4 +1,4 @@
-import { e as escape_html, a2 as attr, $ as attr_class, a1 as stringify } from "../../../chunks/index.js";
+import { e as escape_html, a0 as attr, $ as attr_class, a2 as stringify } from "../../../chunks/index.js";
 import { s as supabase } from "../../../chunks/supabase.js";
 import { B as Button } from "../../../chunks/Button.js";
 function _page($$renderer, $$props) {

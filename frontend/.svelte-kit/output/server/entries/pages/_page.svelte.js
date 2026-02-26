@@ -1,4 +1,4 @@
-import { e as escape_html, $ as attr_class, a0 as ensure_array_like, a1 as stringify, a2 as attr, _ as derived } from "../../chunks/index.js";
+import { e as escape_html, $ as attr_class, a0 as attr, a1 as ensure_array_like, a2 as stringify } from "../../chunks/index.js";
 import "clsx";
 import { B as Button } from "../../chunks/Button.js";
 import "../../chunks/supabase.js";
@@ -22,62 +22,54 @@ function EmptyState($$renderer, $$props) {
 function _page($$renderer, $$props) {
   $$renderer.component(($$renderer2) => {
     let credits = 0;
-    let isGenerating = false;
     let prompt = "";
     let history = [];
-    let creditCost = derived(() => 1);
     async function handleGenerate() {
       return;
     }
+    $$renderer2.push(`<div class="min-h-screen bg-[#F8FAFC]">`);
     Header($$renderer2, {
-      title: "Lesson Forge",
-      credits
+      credits,
+      title: "Lesson Forge"
     });
-    $$renderer2.push(`<!----> <main class="max-w-7xl mx-auto px-4 py-12"><div class="grid grid-cols-1 lg:grid-cols-12 gap-10"><div class="lg:col-span-8 space-y-8"><div class="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm"><div class="flex items-center justify-between mb-8"><h3 class="text-xl font-bold text-slate-900">Forge Magic</h3> <div class="flex p-1 bg-slate-100 rounded-xl"><button${attr_class(`px-4 py-2 text-sm font-bold rounded-lg ${stringify("bg-white text-primary shadow-sm")}`)}>Lesson Plan</button> <button${attr_class(`px-4 py-2 text-sm font-bold rounded-lg ${stringify("text-slate-500")}`)}>Presentation</button></div></div> <textarea class="w-full h-40 p-6 bg-slate-50 border border-slate-200 rounded-2xl outline-none text-slate-700" placeholder="A B1 level lesson about...">`);
+    $$renderer2.push(`<!----> <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12"><div class="grid grid-cols-1 lg:grid-cols-12 gap-12"><div class="lg:col-span-8 space-y-8"><div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100"><h2 class="text-2xl font-bold text-slate-900 mb-6">Lesson Forge</h2> <div class="space-y-6"><div class="flex p-1 bg-slate-100 rounded-2xl w-fit"><button${attr_class(`px-6 py-2 rounded-xl text-sm font-medium transition-all ${stringify(
+      "bg-white text-primary shadow-sm"
+    )}`)}>Lesson Plan</button> <button${attr_class(`px-6 py-2 rounded-xl text-sm font-medium transition-all ${stringify("text-slate-500 hover:text-slate-700")}`)}>Presentation</button></div> <div class="relative"><textarea${attr(
+      "placeholder",
+      "e.g., A 45-minute ESL lesson..."
+    )} class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400">`);
     const $$body = escape_html(prompt);
     if ($$body) {
       $$renderer2.push(`${$$body}`);
     }
-    $$renderer2.push(`</textarea> <div class="mt-6 flex items-center justify-between"><div class="flex items-center gap-6">`);
-    {
-      $$renderer2.push("<!--[!-->");
-    }
-    $$renderer2.push(`<!--]--> <div class="text-sm font-medium text-slate-500">Cost: <span class="text-primary font-bold">${escape_html(creditCost())} Credits</span></div></div> <div class="flex items-center gap-4">`);
-    {
-      $$renderer2.push("<!--[!-->");
-    }
-    $$renderer2.push(`<!--]--> `);
+    $$renderer2.push(`</textarea></div> <div class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg></div> <div><p class="text-sm font-bold text-slate-900">Cost: 1 Credits</p> <p class="text-xs text-slate-500">Current Balance: ${escape_html(credits)}</p></div></div> `);
     Button($$renderer2, {
-      text: "Forge Magic",
-      isLoading: isGenerating,
-      disabled: true,
-      onclick: handleGenerate
+      onclick: handleGenerate,
+      disabled: !prompt,
+      variant: "primary",
+      text: "Forge Content"
     });
-    $$renderer2.push(`<!----></div></div></div> <div class="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden"><div class="px-8 py-6 border-b border-slate-100"><h3 class="font-bold text-slate-900">Recent Activity</h3></div> <div class="divide-y divide-slate-50">`);
+    $$renderer2.push(`<!----></div> `);
+    {
+      $$renderer2.push("<!--[!-->");
+    }
+    $$renderer2.push(`<!--]--></div></div> <div class="space-y-4"><h3 class="text-xl font-bold text-slate-900">Your Forge History</h3> `);
     if (history.length === 0) {
       $$renderer2.push("<!--[-->");
-      $$renderer2.push(`<div class="p-12 text-center">`);
-      EmptyState($$renderer2, { message: "Your forge is cold." });
-      $$renderer2.push(`<!----></div>`);
+      EmptyState($$renderer2, {
+        message: "Your generated lessons and presentations will appear here."
+      });
     } else {
       $$renderer2.push("<!--[!-->");
       $$renderer2.push(`<!--[-->`);
       const each_array = ensure_array_like(history);
       for (let $$index = 0, $$length = each_array.length; $$index < $$length; $$index++) {
         let item = each_array[$$index];
-        $$renderer2.push(`<div class="px-8 py-6 flex items-center justify-between hover:bg-slate-50 transition-colors"><div class="flex items-center gap-4"><div${attr_class(`w-10 h-10 rounded-xl flex items-center justify-center ${stringify(item.file_path.endsWith(".pptx") ? "bg-orange-100 text-orange-600" : "bg-slate-100 text-slate-500")}`)}>`);
-        if (item.file_path.endsWith(".pptx")) {
-          $$renderer2.push("<!--[-->");
-          $$renderer2.push(`<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 13h6m-3-3v6"></path></svg>`);
-        } else {
-          $$renderer2.push("<!--[!-->");
-          $$renderer2.push(`<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>`);
-        }
-        $$renderer2.push(`<!--]--></div> <div class="font-bold text-slate-900">${escape_html(item.prompt.substring(0, 40))}...</div></div> <a${attr("href", item.file_path.startsWith("http") ? item.file_path : `http://localhost:8080${item.file_path.startsWith("/") ? item.file_path : "/" + item.file_path}`)} target="_blank" rel="noopener noreferrer" download="" class="p-2 text-slate-400 hover:text-primary transition-colors"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg></a></div>`);
+        $$renderer2.push(`<div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group"><div class="flex items-center gap-4"><div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-primary/5 group-hover:text-primary transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div> <div><p class="font-bold text-slate-900 line-clamp-1">${escape_html(item.prompt)}</p> <p class="text-xs text-slate-400">${escape_html(new Date(item.created_at).toLocaleDateString())}</p></div></div> <a${attr("href", item.file_path)} aria-label="Download generated file" target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg></a></div>`);
       }
       $$renderer2.push(`<!--]-->`);
     }
-    $$renderer2.push(`<!--]--></div></div></div> <div class="lg:col-span-4"><div class="p-8 bg-primary rounded-3xl text-white shadow-xl"><h3 class="text-xl font-bold mb-2">Fuel Your Forge</h3> <p class="text-white/70 text-sm mb-8">Unlock unlimited creativity.</p> <div class="space-y-4"><button class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">10 Credits | $9.99</button> <button class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all"><span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-secondary text-white text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-bold">Popular</span> 50 Credits | $39.99</button></div></div></div></div></main>`);
+    $$renderer2.push(`<!--]--></div></div> <div class="lg:col-span-4"><div class="p-8 bg-primary rounded-3xl text-white shadow-xl sticky top-8"><h3 class="text-xl font-bold mb-2">Fuel Your Forge</h3> <div class="space-y-4 mt-8"><button class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">10 Credits | $9.99</button> <button class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all"><span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-primary text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-black">Best Value</span> 50 Credits | $39.99</button></div></div></div></div></main></div>`);
   });
 }
 export {

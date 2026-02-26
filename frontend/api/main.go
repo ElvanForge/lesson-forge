@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ElvanForge/lesson-forge/backend/internal"
+	"github.com/ElvanForge/lesson-forge/backend/logic"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -67,7 +67,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider := internal.GetAIProvider()
+	provider := logic.GetAIProvider()
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
 		http.Error(w, "AI failed", 500)
@@ -79,10 +79,10 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var cType string
 
 	if req.Mode == "ppt" {
-		data, name, _ = internal.GeneratePPTX(userID, content)
+		data, name, _ = logic.GeneratePPTX(userID, content)
 		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		data, name, _ = internal.GeneratePDF(userID, content)
+		data, name, _ = logic.GeneratePDF(userID, content)
 		cType = "application/pdf"
 	}
 
