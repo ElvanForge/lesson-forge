@@ -48,14 +48,6 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// Local development entry point
-func main() {
-	port := os.Getenv("PORT")
-	if port == "" { port = "8080" }
-	fmt.Printf("Server starting on port %s...\n", port)
-	http.ListenAndServe(":"+port, http.HandlerFunc(Handler))
-}
-
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var req struct {

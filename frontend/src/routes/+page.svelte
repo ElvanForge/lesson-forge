@@ -180,7 +180,7 @@
                 <div class="space-y-4">
                     <h3 class="text-xl font-bold text-slate-900">Your Forge History</h3>
                     {#if history.length === 0}
-                        <EmptyState message="Your generated lessons and presentations will appear here." />
+                        <EmptyState message="Start forging your first lesson plan or presentation above." />
                     {:else}
                         {#each history as item}
                             <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all group">
@@ -195,7 +195,7 @@
                                         <p class="text-xs text-slate-400">{new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
                                 </div>
-                                <a href={item.file_path} aria-label="Download generated file" target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all">
+                                <a href={item.file_path} target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
