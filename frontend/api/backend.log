@@ -1,9 +1,0 @@
-Server starting on port 8080
-Allowed Origins: http://localhost:5173,http://localhost:39234,http://localhost:39233
-Database URL present: true
-[13:20:06] GET /
-[13:20:06] GET /favicon.ico
-[13:48:21] POST /api/generate
-[13:50:02] POST /api/generate
-[13:50:40] POST /api/generate
-[13:55:08] POST /api/generate
