@@ -1,12 +1,11 @@
 module github.com/ElvanForge/lesson-forge/backend
 
-go 1.22
+go 1.24.0
 
 require (
 	baliance.com/gooxml v1.0.1
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/johnfercher/maroto v1.0.0
-	github.com/joho/godotenv v1.5.1
 )
 
 require (
