@@ -2,13 +2,14 @@
   "version": 2,
   "functions": {
     "api/main.go": {
-      "runtime": "go@1.22.0"
+      "runtime": "go"
     }
   },
   "rewrites": [
     {
-      "source": "api/(.*)",
-      "destination": "api/main.go"
+      "source": "/api/(.*)",
+      "destination": "/api/main.go"
     }
-  ]
+  ],
+  "installCommand": "npm install"
 }
