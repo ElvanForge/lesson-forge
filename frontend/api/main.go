@@ -22,7 +22,7 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		p, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
 		if err != nil {
 			log.Printf("DATABASE ERROR: %v", err)
-			http.Error(w, "Database connection failed", 500)
+			http.Error(w, "Database error", 500)
 			return
 		}
 		pool = p
@@ -56,23 +56,21 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		Mode   string `json:"mode"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", 400)
+		http.Error(w, "Bad request", 400)
 		return
 	}
 
-	log.Printf("Starting generation for user %s with mode %s", userID, req.Mode)
-
 	provider := logic.GetAIProvider()
 	if provider == nil {
-		log.Printf("CRITICAL ERROR: AI Provider is nil. Check your API Keys in Vercel settings.")
+		log.Println("AI Provider init failed")
 		http.Error(w, "AI configuration error", 500)
 		return
 	}
 
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
-		log.Printf("AI GENERATION ERROR: %v", err)
-		http.Error(w, fmt.Sprintf("AI failed: %v", err), 500)
+		log.Printf("AI Error: %v", err)
+		http.Error(w, "AI generation failed", 500)
 		return
 	}
 
@@ -89,15 +87,14 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		log.Printf("DOCUMENT GENERATION ERROR: %v", err)
-		http.Error(w, "Failed to create document", 500)
+		http.Error(w, "Document generation failed", 500)
 		return
 	}
 
 	url, err := uploadToSupabase(data, name, cType)
 	if err != nil {
-		log.Printf("SUPABASE UPLOAD ERROR: %v", err)
-		http.Error(w, "Failed to save file", 500)
+		log.Printf("Upload Error: %v", err)
+		http.Error(w, "Storage failed", 500)
 		return
 	}
 
@@ -110,6 +107,7 @@ func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	var balance int
 	err := pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
 	if err != nil {
+		log.Printf("Credit fetch error: %v", err)
 		balance = 0
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -124,17 +122,14 @@ func authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
-		
-		// Supabase Auth Check
 		req, _ := http.NewRequest("GET", os.Getenv("SUPABASE_URL")+"/auth/v1/user", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 		
-		client := &http.Client{Timeout: 15 * time.Second}
+		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != 200 {
-			log.Printf("AUTH ERROR: %v (Status: %d)", err, resp.StatusCode)
-			http.Error(w, "Authentication failed", 401)
+			http.Error(w, "Auth failed", 401)
 			return
 		}
 		defer resp.Body.Close()
@@ -148,21 +143,20 @@ func authMiddleware(next http.Handler) http.Handler {
 
 func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
 	url := fmt.Sprintf("%s/storage/v1/object/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName)
-	req, err := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
-	if err != nil { return "", err }
-
-	req.Header.Set("Authorization", "Bearer "+os.Getenv("SUPABASE_SERVICE_ROLE_KEY")) // Use service role for uploads
+	req, _ := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
+	
+	// Crucial: Use Service Role Key to bypass RLS for backend uploads
+	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	if key == "" { key = os.Getenv("SUPABASE_ANON_KEY") }
+	
+	req.Header.Set("Authorization", "Bearer "+key)
 	req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
 	req.Header.Set("Content-Type", contentType)
-
+	
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil { return "", err }
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("storage upload failed with status %d", resp.StatusCode)
+	if err != nil || resp.StatusCode != 200 {
+		return "", fmt.Errorf("upload failed")
 	}
-
 	return fmt.Sprintf("%s/storage/v1/object/public/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName), nil
 }
