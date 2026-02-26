@@ -54,11 +54,21 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
 
-	json.NewDecoder(resp.Body).Decode(&result)
-	if len(result.Candidates) == 0 {
-		return "", errors.New("no content")
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode gemini response: %v", err)
+	}
+
+	// Safety check for Gemini
+	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
+		if result.Error.Message != "" {
+			return "", fmt.Errorf("gemini api error: %s", result.Error.Message)
+		}
+		return "", errors.New("gemini returned no content")
 	}
 	return result.Candidates[0].Content.Parts[0].Text, nil
 }
@@ -93,8 +103,22 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode deepseek response: %v", err)
+	}
+
+	// Safety check for DeepSeek - Fixes the index out of range [0] panic
+	if len(result.Choices) == 0 {
+		if result.Error.Message != "" {
+			return "", fmt.Errorf("deepseek api error: %s", result.Error.Message)
+		}
+		return "", errors.New("deepseek returned no choices")
+	}
 	return result.Choices[0].Message.Content, nil
 }
 
@@ -108,9 +132,11 @@ func GetAIProvider() AIProvider {
 	if os.Getenv("MOCK_AI") == "true" {
 		return &MockProvider{}
 	}
+	// Prioritize DeepSeek if key is present
 	if key := os.Getenv("DEEPSEEK_KEY"); key != "" {
 		return &DeepSeekProvider{APIKey: key}
 	}
+	// Fallback to Gemini
 	if key := os.Getenv("GEMINI_KEY"); key != "" {
 		return &GeminiProvider{APIKey: key}
 	}
