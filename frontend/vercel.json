@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "functions": {
+    "api/main.go": {
+      "runtime": "go@1.22.0"
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/main.go"
+    }
+  ]
+}
