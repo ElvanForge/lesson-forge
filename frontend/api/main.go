@@ -16,7 +16,6 @@ import (
 
 var pool *pgxpool.Pool
 
-// Handler is what Vercel looks for
 func Handler(w http.ResponseWriter, r *http.Request) {
 	if pool == nil {
 		p, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
@@ -62,7 +61,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	provider := logic.GetAIProvider()
 	content, err := provider.GenerateContent(r.Context(), req.Prompt)
 	if err != nil {
-		http.Error(w, "AI failed", 500)
+		http.Error(w, "AI generation failed", 500)
 		return
 	}
 
@@ -78,7 +77,12 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		cType = "application/pdf"
 	}
 
-	url, _ := uploadToSupabase(data, name, cType)
+	url, err := uploadToSupabase(data, name, cType)
+	if err != nil {
+		http.Error(w, "Storage upload failed", 500)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"file": url})
 }
@@ -86,7 +90,10 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	var balance int
-	pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
+	err := pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
+	if err != nil {
+		balance = 0
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]int{"credits": balance})
 }
@@ -102,7 +109,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		req, _ := http.NewRequest("GET", os.Getenv("SUPABASE_URL")+"/auth/v1/user", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
-		client := &http.Client{Timeout: 10 * time.Second}
+		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil || resp.StatusCode != 200 {
 			http.Error(w, "Auth failed", 401)
@@ -124,6 +131,8 @@ func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (st
 	req.Header.Set("Content-Type", contentType)
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 { return "", fmt.Errorf("upload failed") }
+	if err != nil || resp.StatusCode != 200 {
+		return "", fmt.Errorf("upload failed")
+	}
 	return fmt.Sprintf("%s/storage/v1/object/public/generated-files/%s", os.Getenv("SUPABASE_URL"), fileName), nil
 }

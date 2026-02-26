@@ -162,6 +162,7 @@
                             <Button 
                                 onclick={handleGenerate} 
                                 disabled={isGenerating || !prompt || (isLoggedIn && credits < creditCost)}
+                                isLoading={isGenerating}
                                 variant="primary"
                                 text={isGenerating ? "Forging..." : "Forge Content"}
                             />
