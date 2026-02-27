@@ -10,9 +10,14 @@
     let credits = $state(0);
     let email = $state("");
     let isGenerating = $state(false);
+    
+    // Form Fields
     let prompt = $state("");
     let grade = $state("");
     let duration = $state("");
+    let teacherName = $state("");
+    let className = $state("");
+    
     let genMode = $state("lesson");
     let history = $state<any[]>([]);
     let generatedMarkdown = $state("");
@@ -22,15 +27,8 @@
 
     onMount(() => {
         if (!isSupabaseConfigured) return;
-        
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            handleAuthStateChange(session);
-        });
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            handleAuthStateChange(session);
-        });
-
+        supabase.auth.getSession().then(({ data: { session } }) => handleAuthStateChange(session));
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => handleAuthStateChange(session));
         return () => subscription.unsubscribe();
     });
 
@@ -111,6 +109,11 @@
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
+                        <input bind:value={teacherName} placeholder="Teacher Name" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
+                        <input bind:value={className} placeholder="Class/Subject" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
                         <input bind:value={grade} placeholder="Grade Level" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                         <input bind:value={duration} placeholder="Duration" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                     </div>
@@ -119,15 +122,23 @@
                     
                     <div class="flex justify-between items-center">
                         <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
-                        <Button onclick={handleGenerate} text="Generate Professional Preview" isLoading={isGenerating} />
+                        <Button onclick={handleGenerate} text="Generate Preview" isLoading={isGenerating} />
                     </div>
                 </div>
 
                 {#if showPreview}
-                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
-                        <div class="text-center border-b-4 border-slate-900 pb-8 mb-10">
-                            <h1 class="text-5xl font-serif font-bold text-slate-900 tracking-tighter uppercase">Vaelia Forge</h1>
-                            <p class="text-xs font-black tracking-[0.4em] uppercase mt-3 text-slate-500">Premium Educational Resource</p>
+                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200 animate-in fade-in duration-700">
+                        <div class="border-b-2 border-slate-900 pb-6 mb-10 flex justify-between items-end">
+                            <div>
+                                <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">Lesson Plan</h1>
+                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Generated via Vaelia Forge</p>
+                            </div>
+                            <div class="text-right text-sm space-y-1 text-slate-700 font-mono uppercase">
+                                <p><span class="font-bold">Teacher:</span> {teacherName || '____________'}</p>
+                                <p><span class="font-bold">Class:</span> {className || '____________'}</p>
+                                <p><span class="font-bold">Grade:</span> {grade || '____________'}</p>
+                                <p><span class="font-bold">Date:</span> {new Date().toLocaleDateString()}</p>
+                            </div>
                         </div>
 
                         <div class="prose prose-slate max-w-none">
@@ -148,7 +159,6 @@
             </div>
 
             <div class="lg:col-span-4 space-y-8 no-print">
-                
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
                     <div class="space-y-4 mt-6">
@@ -185,7 +195,6 @@
                     </div>
                 </div>
             </div>
-
         </div>
     </main>
 </div>
@@ -198,11 +207,10 @@
     }
     
     :global(.prose h2) { 
-        border-left: 8px solid #3b82f6; 
-        padding-left: 1.5rem;
-        margin-top: 2.5rem;
-        color: #1e293b;
-        text-transform: uppercase;
-        font-weight: 800;
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 0.5rem;
+        margin-top: 2rem;
+        color: #0f172a;
+        font-weight: 700;
     }
 </style>
