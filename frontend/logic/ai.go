@@ -1,149 +1,189 @@
-package logic
+package handler
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/ElvanForge/lesson-forge/backend/logic"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type AIProvider interface {
-	GenerateContent(ctx context.Context, prompt string) (string, error)
-}
+var pool *pgxpool.Pool
 
-type GeminiProvider struct {
-	APIKey string
-}
-
-func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	// Fixed the model name to the stable alias 'gemini-2.0-flash-lite'
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=%s", g.APIKey)
-
-	payload := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{"text": prompt},
-				},
-			},
-		},
+func Handler(w http.ResponseWriter, r *http.Request) {
+	if pool == nil {
+		p, err := pgxpool.New(context.Background(), os.Getenv("DATABASE_URL"))
+		if err != nil {
+			log.Printf("DB INIT ERROR: %v", err)
+			http.Error(w, "Database connection failed", 500)
+			return
+		}
+		pool = p
 	}
 
-	jsonData, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	path := strings.TrimPrefix(r.URL.Path, "/api")
+	if path == "/generate" && r.Method == "POST" {
+		authMiddleware(http.HandlerFunc(handleGenerate)).ServeHTTP(w, r)
+		return
+	}
+	if path == "/user/credits" && r.Method == "GET" {
+		authMiddleware(http.HandlerFunc(handleGetCredits)).ServeHTTP(w, r)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+func handleGenerate(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	
+	// Detect country from Vercel Edge headers to route AI traffic
+	countryCode := r.Header.Get("x-vercel-ip-country")
+
+	var req struct {
+		Prompt string `json:"prompt"`
+		Mode   string `json:"mode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", 400)
+		return
+	}
+
+	// Updated to pass countryCode to the AI selector
+	provider := logic.GetAIProvider(countryCode)
+	if provider == nil {
+		http.Error(w, "AI configuration error", 500)
+		return
+	}
+
+	content, err := provider.GenerateContent(r.Context(), req.Prompt)
+	if err != nil {
+		log.Printf("AI ERROR (Country: %s): %v", countryCode, err)
+		http.Error(w, fmt.Sprintf("AI generation failed: %v", err), 500)
+		return
+	}
+
+	var data []byte
+	var name string
+	var cType string
+
+	if req.Mode == "ppt" {
+		data, name, err = logic.GeneratePPTX(userID, content)
+		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	} else {
+		data, name, err = logic.GeneratePDF(userID, content)
+		cType = "application/pdf"
+	}
+
+	if err != nil {
+		log.Printf("DOC GEN ERROR: %v", err)
+		http.Error(w, "Document generation failed", 500)
+		return
+	}
+
+	uniqueName := fmt.Sprintf("%d_%s", time.Now().Unix(), name)
+	url, err := uploadToSupabase(data, uniqueName, cType)
+	if err != nil {
+		log.Printf("STORAGE UPLOAD CRITICAL ERROR: %v", err)
+		http.Error(w, "File storage failed", 500)
+		return
+	}
+
+	tx, err := pool.Begin(r.Context())
+	if err == nil {
+		defer tx.Rollback(r.Context())
+		tx.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance - 1 WHERE id = $1::uuid", userID)
+		tx.Exec(r.Context(), "INSERT INTO generations (user_id, prompt, file_path, type) VALUES ($1, $2, $3, $4)", userID, req.Prompt, url, req.Mode)
+		tx.Commit(r.Context())
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"file": url})
+}
+
+func handleGetCredits(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	var balance int
+	err := pool.QueryRow(r.Context(), "SELECT credit_balance FROM users WHERE id = $1::uuid", userID).Scan(&balance)
+	if err != nil {
+		balance = 0
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"credits": balance})
+}
+
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		
+		req, _ := http.NewRequest("GET", os.Getenv("SUPABASE_URL")+"/auth/v1/user", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("apikey", os.Getenv("SUPABASE_ANON_KEY"))
+		
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil || resp.StatusCode != 200 {
+			http.Error(w, "Auth failed", 401)
+			return
+		}
+		defer resp.Body.Close()
+		
+		var user struct{ ID string `json:"id"` }
+		json.NewDecoder(resp.Body).Decode(&user)
+		r.Header.Set("X-User-ID", user.ID)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func uploadToSupabase(fileBytes []byte, fileName string, contentType string) (string, error) {
+	bucket := "generated-files"
+	url := fmt.Sprintf("%s/storage/v1/object/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName)
+	
+	req, err := http.NewRequest("POST", url, bytes.NewReader(fileBytes))
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	
+	serviceKey := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+	anonKey := os.Getenv("SUPABASE_ANON_KEY")
 
-	client := &http.Client{Timeout: 90 * time.Second}
+	req.Header.Set("Authorization", "Bearer "+serviceKey)
+	req.Header.Set("apikey", anonKey)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("x-upsert", "true")
+
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-		} `json:"candidates"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Supabase Status %d: %s", resp.StatusCode, string(body))
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode gemini response: %v", err)
-	}
-
-	if len(result.Candidates) == 0 || len(result.Candidates[0].Content.Parts) == 0 {
-		if result.Error.Message != "" {
-			return "", fmt.Errorf("gemini api error: %s", result.Error.Message)
-		}
-		return "", errors.New("gemini returned no content")
-	}
-	return result.Candidates[0].Content.Parts[0].Text, nil
-}
-
-type DeepSeekProvider struct {
-	APIKey string
-}
-
-func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	url := "https://api.deepseek.com/v1/chat/completions"
-	payload := map[string]interface{}{
-		"model": "deepseek-chat",
-		"messages": []map[string]interface{}{
-			{"role": "user", "content": prompt},
-		},
-	}
-	jsonData, _ := json.Marshal(payload)
-	req, _ := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+d.APIKey)
-
-	client := &http.Client{Timeout: 90 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var result struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode deepseek response: %v", err)
-	}
-
-	// Safety check to handle empty balance or API errors
-	if len(result.Choices) == 0 {
-		if result.Error.Message != "" {
-			return "", fmt.Errorf("deepseek api error: %s", result.Error.Message)
-		}
-		return "", errors.New("deepseek returned no choices")
-	}
-	return result.Choices[0].Message.Content, nil
-}
-
-type MockProvider struct{}
-
-func (m *MockProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	return "# Mock Content\nGenerated for: " + prompt, nil
-}
-
-func GetAIProvider(countryCode string) AIProvider {
-	if os.Getenv("MOCK_AI") == "true" {
-		return &MockProvider{}
-	}
-
-	// ROUTING: DeepSeek is ONLY for China (CN)
-	if countryCode == "CN" {
-		if key := os.Getenv("DEEPSEEK_KEY"); key != "" {
-			return &DeepSeekProvider{APIKey: key}
-		}
-	}
-
-	// DEFAULT: Use Gemini for Georgia (GE) and all other countries
-	if key := os.Getenv("GEMINI_KEY"); key != "" {
-		return &GeminiProvider{APIKey: key}
-	}
-
-	return &MockProvider{}
+	return fmt.Sprintf("%s/storage/v1/object/public/%s/%s", os.Getenv("SUPABASE_URL"), bucket, fileName), nil
 }
