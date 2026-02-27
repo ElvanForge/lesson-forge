@@ -132,12 +132,15 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	})
 	if req.Mode == "ppt" {
     currentPrompt = fmt.Sprintf(`Act as an expert presenter. Create a presentation for: %s.
-    Use this exact format for EVERY slide:
-    # [Slide Title]
-    - [Bullet Point 1]
-    - [Bullet Point 2]
+    Grade Level: %s. 
     
-    Do not add any other text. Limit to 8 slides.`, req.Prompt)
+    RULES:
+    1. Separate EVERY slide with exactly "---".
+    2. The first line of each slide is the Title.
+    3. Use bullet points for the body.
+    4. DO NOT use markdown bold (**) or multiple hashtags.
+    
+    Limit to 7 slides.`, req.Prompt, req.Grade)
 	}
 }
 

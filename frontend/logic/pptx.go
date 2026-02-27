@@ -15,7 +15,7 @@ import (
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 	ppt := presentation.New()
 	
-	// Split content into slides by the "---" separator often used by AI
+	// Split by slide separator
 	slides := strings.Split(content, "---")
 	
 	for _, slideContent := range slides {
@@ -25,53 +25,70 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 		}
 		
 		slide := ppt.AddSlide()
-		
-		// 1. CREATE A STYLIZED HEADER BOX
-		// We use a TextBox with a background fill instead of AddShape
-		headerBox := slide.AddTextBox()
-		headerBox.Properties().SetPosition(0, 0)
-		headerBox.Properties().SetSize(10*measurement.Inch, 1.25*measurement.Inch)
-		headerBox.Properties().SetSolidFill(color.SlateGray) // Dark header background
 
-		// Split title from the rest of the slide content
-		parts := strings.SplitN(cleanContent, "\n", 2)
-		titleText := strings.TrimPrefix(strings.TrimSpace(parts[0]), "# ")
-		
-		// Add the title text to the header box
-		titleP := headerBox.AddParagraph()
-		titleP.Properties().SetAlign(dml.ST_TextAlignTypeL)
-		
-		titleRun := titleP.AddRun()
-		titleRun.SetText("  " + strings.ToUpper(titleText)) // Added padding
-		titleRun.Properties().SetSize(32)
-		titleRun.Properties().SetBold(true)
-		titleRun.Properties().SetSolidFill(color.White)
+		// --- 1. THE CANVAS (Background) ---
+		// We create a box that covers the WHOLE slide to simulate a background color
+		bgCanvas := slide.AddTextBox()
+		bgCanvas.Properties().SetPosition(0, 0)
+		bgCanvas.Properties().SetSize(10*measurement.Inch, 7.5*measurement.Inch)
+		bgCanvas.Properties().SetSolidFill(color.Gray) // A nice Slate/Gray base
 
-		// 2. STYLIZED BODY BOX
-		if len(parts) > 1 {
+		// --- 2. CLEANING & PARSING ---
+		lines := strings.Split(cleanContent, "\n")
+		var titleText string
+		var bodyLines []string
+
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" { continue }
+
+			// Remove Markdown syntax
+			line = strings.ReplaceAll(line, "#", "")
+			line = strings.ReplaceAll(line, "**", "")
+			line = strings.ReplaceAll(line, "__", "")
+			line = strings.TrimSpace(line)
+
+			if titleText == "" {
+				titleText = line
+			} else {
+				bodyLines = append(bodyLines, line)
+			}
+		}
+
+		// --- 3. STYLIZED TITLE AREA ---
+		// A dark header bar at the top
+		headerBar := slide.AddTextBox()
+		headerBar.Properties().SetPosition(0, 0)
+		headerBar.Properties().SetSize(10*measurement.Inch, 1.5*measurement.Inch)
+		headerBar.Properties().SetSolidFill(color.DarkBlue)
+
+		titleP := headerBar.AddParagraph()
+		titleP.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
+		run := titleP.AddRun()
+		run.SetText(strings.ToUpper(titleText))
+		run.Properties().SetSize(40)
+		run.Properties().SetBold(true)
+		run.Properties().SetSolidFill(color.White)
+
+		// --- 4. STYLIZED BODY AREA ---
+		if len(bodyLines) > 0 {
 			bodyTb := slide.AddTextBox()
-			bodyTb.Properties().SetPosition(0.5*measurement.Inch, 1.75*measurement.Inch)
-			bodyTb.Properties().SetSize(9*measurement.Inch, 5*measurement.Inch)
+			bodyTb.Properties().SetPosition(0.75*measurement.Inch, 2.0*measurement.Inch)
+			bodyTb.Properties().SetSize(8.5*measurement.Inch, 5.0*measurement.Inch)
 			
-			lines := strings.Split(parts[1], "\n")
-			for _, line := range lines {
-				text := strings.TrimSpace(line)
-				if text == "" {
-					continue
-				}
-				
+			for _, line := range bodyLines {
+				// Clean bullet characters
+				text := strings.TrimPrefix(line, "*")
+				text = strings.TrimPrefix(text, "-")
+				text = strings.TrimSpace(text)
+
 				p := bodyTb.AddParagraph()
+				p.Properties().SetLevel(0) // Indent as a bullet
 				
-				// Handle bullets manually if AI provides them
-				if strings.HasPrefix(text, "*") || strings.HasPrefix(text, "-") {
-					p.Properties().SetLevel(0)
-					text = strings.TrimSpace(text[1:])
-				}
-				
-				run := p.AddRun()
-				run.SetText(text)
-				run.Properties().SetSize(18)
-				run.Properties().SetSolidFill(color.DimGray)
+				bodyRun := p.AddRun()
+				bodyRun.SetText(text)
+				bodyRun.Properties().SetSize(22)
+				bodyRun.Properties().SetSolidFill(color.White)
 			}
 		}
 	}
