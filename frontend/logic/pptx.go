@@ -3,6 +3,7 @@ package logic
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	"baliance.com/gooxml/measurement"
@@ -11,10 +12,35 @@ import (
 
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 	ppt := presentation.New()
-	slide := ppt.AddSlide()
-	tb := slide.AddTextBox()
-	tb.Properties().SetPosition(0.5*measurement.Inch, 0.5*measurement.Inch)
-	tb.AddParagraph().AddRun().SetText(content)
+	
+	// Split content into slides by the "#" character
+	slides := strings.Split(content, "#")
+	
+	for _, slideContent := range slides {
+		cleanContent := strings.TrimSpace(slideContent)
+		if cleanContent == "" {
+			continue
+		}
+		
+		slide := ppt.AddSlide()
+		tb := slide.AddTextBox()
+		// Set position and size of the text box
+		tb.Properties().SetPosition(0.5*measurement.Inch, 0.5*measurement.Inch)
+		
+		lines := strings.Split(cleanContent, "\n")
+		for i, line := range lines {
+			p := tb.AddParagraph()
+			run := p.AddRun()
+			run.SetText(strings.TrimSpace(line))
+			
+			// FIX: Access SetSize through Properties()
+			if i == 0 {
+				run.Properties().SetSize(32) // Title size
+			} else {
+				run.Properties().SetSize(18) // Body size
+			}
+		}
+	}
 
 	var buf bytes.Buffer
 	if err := ppt.Save(&buf); err != nil {
