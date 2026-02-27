@@ -9,7 +9,6 @@ import (
 	"baliance.com/gooxml/color"
 	"baliance.com/gooxml/measurement"
 	"baliance.com/gooxml/presentation"
-	"baliance.com/gooxml/schema/soo/dml"
 )
 
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
@@ -26,8 +25,7 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 		
 		slide := ppt.AddSlide()
 
-		// 1. CLEAN THE TEXT (Remove all Markdown garbage)
-		// This ensures # and ** don't show up on your slides
+		// 1. STRIP MARKDOWN (Cleans up #, *, **, etc.)
 		replacer := strings.NewReplacer("#", "", "*", "", "_", "", "**", "", "__", "")
 		lines := strings.Split(cleanContent, "\n")
 		
@@ -43,38 +41,38 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 			}
 		}
 
-		// 2. DESIGN: THE ACCENT BAR
-		// We add a dark sidebar to give it a "Designed" look
-		accentBar := slide.AddTextBox()
-		accentBar.Properties().SetPosition(0, 0)
-		accentBar.Properties().SetSize(2.5*measurement.Inch, 7.5*measurement.Inch)
-		accentBar.Properties().SetSolidFill(color.SlateGray)
+		// 2. DESIGN: THE SIDEBAR (Professional Blue-Gray)
+		// This makes the slide look like a template rather than a blank page
+		sidebar := slide.AddTextBox()
+		sidebar.Properties().SetPosition(0, 0)
+		sidebar.Properties().SetSize(2.2*measurement.Inch, 7.5*measurement.Inch)
+		sidebar.Properties().SetSolidFill(color.SlateGray)
 
-		// 3. THE TITLE (Large, Bold, Professional)
+		// 3. THE TITLE (Right-aligned next to sidebar)
 		titleTb := slide.AddTextBox()
-		titleTb.Properties().SetPosition(2.8*measurement.Inch, 0.5*measurement.Inch)
-		titleTb.Properties().SetSize(6.5*measurement.Inch, 1.5*measurement.Inch)
+		titleTb.Properties().SetPosition(2.5*measurement.Inch, 0.6*measurement.Inch)
+		titleTb.Properties().SetSize(7.0*measurement.Inch, 1.2*measurement.Inch)
 		
 		titleP := titleTb.AddParagraph()
 		run := titleP.AddRun()
 		run.SetText(strings.ToUpper(titleText))
-		run.Properties().SetSize(36)
+		run.Properties().SetSize(32)
 		run.Properties().SetBold(true)
-		run.Properties().SetSolidFill(color.DarkBlue)
+		run.Properties().SetSolidFill(color.SteelBlue)
 
-		// 4. THE BODY (Clean Bullets)
+		// 4. THE BODY (Clean list)
 		if len(bodyLines) > 0 {
 			bodyTb := slide.AddTextBox()
-			bodyTb.Properties().SetPosition(2.8*measurement.Inch, 2.2*measurement.Inch)
-			bodyTb.Properties().SetSize(6.5*measurement.Inch, 4.5*measurement.Inch)
+			bodyTb.Properties().SetPosition(2.5*measurement.Inch, 2.0*measurement.Inch)
+			bodyTb.Properties().SetSize(7.0*measurement.Inch, 4.8*measurement.Inch)
 			
 			for _, line := range bodyLines {
 				p := bodyTb.AddParagraph()
-				p.Properties().SetLevel(0) // This forces a bullet point indent
+				p.Properties().SetLevel(0) // Indents text as a bullet point
 				
 				bodyRun := p.AddRun()
 				bodyRun.SetText(line)
-				bodyRun.Properties().SetSize(20)
+				bodyRun.Properties().SetSize(18)
 				bodyRun.Properties().SetSolidFill(color.DimGray)
 			}
 		}
