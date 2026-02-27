@@ -145,7 +145,9 @@
                         </div>
                     </div>
                     <div class="flex justify-center no-print mt-8">
-                        <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold">Download Stylized PDF</button>
+                        <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">
+                            {genMode === 'ppt' ? 'Download Presentation' : 'Download Stylized PDF'}
+                        </button>
                     </div>
                 {:else if !isGenerating}
                     <EmptyState message="Your forged content will appear here..." />

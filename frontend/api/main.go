@@ -130,6 +130,15 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		"file": url,
 		"raw_content": content,
 	})
+	if req.Mode == "ppt" {
+    currentPrompt = fmt.Sprintf(`Act as an expert presenter. Create a presentation for: %s.
+    Use this exact format for EVERY slide:
+    # [Slide Title]
+    - [Bullet Point 1]
+    - [Bullet Point 2]
+    
+    Do not add any other text. Limit to 8 slides.`, req.Prompt)
+	}
 }
 
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {

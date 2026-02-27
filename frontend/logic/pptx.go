@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"baliance.com/gooxml/color"
 	"baliance.com/gooxml/measurement"
 	"baliance.com/gooxml/presentation"
+	"baliance.com/gooxml/schema/soo/dml"
 )
 
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
@@ -23,21 +25,49 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 		}
 		
 		slide := ppt.AddSlide()
-		tb := slide.AddTextBox()
-		// Set position and size of the text box
-		tb.Properties().SetPosition(0.5*measurement.Inch, 0.5*measurement.Inch)
 		
-		lines := strings.Split(cleanContent, "\n")
-		for i, line := range lines {
-			p := tb.AddParagraph()
-			run := p.AddRun()
-			run.SetText(strings.TrimSpace(line))
+		// FIX: Set Background via Properties
+		bg := slide.Properties().Background()
+		bg.Fill().SetSolidFill(color.LightSlateGray) 
+
+		// Split title from the rest of the slide content
+		parts := strings.SplitN(cleanContent, "\n", 2)
+		titleText := parts[0]
+		
+		// 1. Stylized Title Box
+		titleTb := slide.AddTextBox()
+		titleTb.Properties().SetPosition(0.5*measurement.Inch, 0.4*measurement.Inch)
+		titleTb.Properties().SetSize(9*measurement.Inch, 1*measurement.Inch)
+		
+		titleP := titleTb.AddParagraph()
+		titleP.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
+		
+		titleRun := titleP.AddRun()
+		titleRun.SetText(strings.ToUpper(titleText))
+		titleRun.Properties().SetSize(36)
+		titleRun.Properties().SetBold(true)
+		titleRun.Properties().SetSolidFill(color.White)
+
+		// 2. Stylized Body Box
+		if len(parts) > 1 {
+			bodyTb := slide.AddTextBox()
+			bodyTb.Properties().SetPosition(0.75*measurement.Inch, 1.5*measurement.Inch)
+			bodyTb.Properties().SetSize(8.5*measurement.Inch, 5*measurement.Inch)
 			
-			// FIX: Access SetSize through Properties()
-			if i == 0 {
-				run.Properties().SetSize(32) // Title size
-			} else {
-				run.Properties().SetSize(18) // Body size
+			lines := strings.Split(parts[1], "\n")
+			for _, line := range lines {
+				text := strings.TrimSpace(line)
+				if text == "" {
+					continue
+				}
+				
+				p := bodyTb.AddParagraph()
+				p.Properties().SetLevel(0) // Adds standard bullet indenting
+				
+				run := p.AddRun()
+				run.SetText(text)
+				run.Properties().SetSize(20)
+				run.Properties().SetSolidFill(color.White)
 			}
 		}
 	}
