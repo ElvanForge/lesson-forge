@@ -24,6 +24,8 @@
     let showPreview = $state(false);
 
     let creditCost = $derived(genMode === "lesson" ? 1 : 2);
+    // Logic to prevent infinite spinning
+    let canGenerate = $derived(credits >= creditCost && prompt.length > 0);
 
     onMount(() => {
         if (!isSupabaseConfigured) return;
@@ -49,8 +51,9 @@
 
     async function refreshCredits() {
         const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
         const res = await fetch("/api/user/credits", {
-            headers: { "Authorization": `Bearer ${session?.access_token}` }
+            headers: { "Authorization": `Bearer ${session.access_token}` }
         });
         const data = await res.json();
         credits = data.credits;
@@ -62,7 +65,11 @@
     }
 
     async function handleGenerate() {
-        if (!prompt) return;
+        if (!canGenerate) {
+            if (credits < creditCost) alert("You need more credits to forge this content!");
+            return;
+        }
+
         isGenerating = true;
         showPreview = false;
         
@@ -82,6 +89,9 @@
             showPreview = true;
             await refreshCredits();
             await fetchHistory();
+        } else {
+            const err = await res.json();
+            alert(err.error || "Generation failed");
         }
         isGenerating = false;
     }
@@ -91,14 +101,13 @@
 
 <div class="min-h-screen bg-[#F8FAFC]">
     <div class="no-print">
-        <Header {isLoggedIn} {credits} title="Vaelia Forge" />
+        <Header {isLoggedIn} {credits} userEmail={email} title="Vaelia Forge" />
     </div>
 
     <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
             <div class="lg:col-span-8 space-y-8">
-                
                 <div class="no-print bg-white p-8 rounded-3xl shadow-sm border border-slate-200 space-y-6">
                     <div class="flex items-center justify-between">
                         <h2 class="text-2xl font-bold text-slate-800">Forge New Content</h2>
@@ -121,8 +130,18 @@
                     <textarea bind:value={prompt} placeholder="What should we teach today?" class="w-full h-32 p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary"></textarea>
                     
                     <div class="flex justify-between items-center">
-                        <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
-                        <Button onclick={handleGenerate} text="Generate Preview" isLoading={isGenerating} />
+                        <div class="flex flex-col">
+                            <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
+                            {#if credits < creditCost}
+                                <p class="text-xs text-red-500 font-bold">Insufficient Credits</p>
+                            {/if}
+                        </div>
+                        <Button 
+                            onclick={handleGenerate} 
+                            text="Generate Preview" 
+                            isLoading={isGenerating} 
+                            disabled={!canGenerate || isGenerating}
+                        />
                     </div>
                 </div>
 
@@ -131,7 +150,7 @@
                         <div class="border-b-2 border-slate-900 pb-6 mb-10 flex justify-between items-end">
                             <div>
                                 <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">Lesson Plan</h1>
-                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Generated via Vaelia Forge</p>
+                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Vaelia Forge | Academic Resource</p>
                             </div>
                             <div class="text-right text-sm space-y-1 text-slate-700 font-mono uppercase">
                                 <p><span class="font-bold">Teacher:</span> {teacherName || '____________'}</p>
