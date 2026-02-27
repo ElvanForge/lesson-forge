@@ -8,23 +8,46 @@
 
     let isLoggedIn = $state(false);
     let credits = $state(0);
+    let email = $state("");
     let isGenerating = $state(false);
     let prompt = $state("");
     let grade = $state("");
     let duration = $state("");
     let genMode = $state("lesson");
+    let history = $state<any[]>([]);
     let generatedMarkdown = $state("");
     let showPreview = $state(false);
-    let history = $state<any[]>([]);
 
-    onMount(async () => {
-        const { data: { session } } = await supabase.auth.getSession();
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
+
+    onMount(() => {
+        if (!isSupabaseConfigured) return;
+        
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleAuthStateChange(session);
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            handleAuthStateChange(session);
+        });
+
+        return () => subscription.unsubscribe();
+    });
+
+    async function handleAuthStateChange(session: any) {
         if (session) {
             isLoggedIn = true;
-            refreshCredits();
-            fetchHistory();
+            email = session.user.email || "";
+            await refreshCredits();
+            await fetchHistory();
+        } else {
+            isLoggedIn = false;
+            email = "";
+            credits = 0;
+            history = [];
+            showPreview = false;
         }
-    });
+    }
 
     async function refreshCredits() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -41,8 +64,10 @@
     }
 
     async function handleGenerate() {
+        if (!prompt) return;
         isGenerating = true;
         showPreview = false;
+        
         const { data: { session } } = await supabase.auth.getSession();
         const res = await fetch("/api/generate", {
             method: "POST",
@@ -52,12 +77,15 @@
             },
             body: JSON.stringify({ prompt, grade, duration, mode: genMode === "lesson" ? "pdf" : "ppt" })
         });
-        const data = await res.json();
-        generatedMarkdown = data.raw_content;
-        showPreview = true;
+        
+        if (res.ok) {
+            const data = await res.json();
+            generatedMarkdown = data.raw_content;
+            showPreview = true;
+            await refreshCredits();
+            await fetchHistory();
+        }
         isGenerating = false;
-        refreshCredits();
-        fetchHistory();
     }
 
     function printDoc() { window.print(); }
@@ -68,43 +96,114 @@
         <Header {isLoggedIn} {credits} title="Vaelia Forge" />
     </div>
 
-    <main class="max-w-5xl mx-auto py-12 px-4">
-        <div class="no-print bg-white p-8 rounded-3xl shadow-sm border mb-12 space-y-6">
-            <h2 class="text-2xl font-bold">Forge Lesson Plan</h2>
-            <div class="grid grid-cols-2 gap-4">
-                <input bind:value={grade} placeholder="Grade Level" class="p-4 bg-slate-50 rounded-2xl border-none" />
-                <input bind:value={duration} placeholder="Duration" class="p-4 bg-slate-50 rounded-2xl border-none" />
-            </div>
-            <textarea bind:value={prompt} placeholder="Enter your topic..." class="w-full h-32 p-4 bg-slate-50 rounded-2xl border-none"></textarea>
-            <Button onclick={handleGenerate} text="Generate Preview" isLoading={isGenerating} />
-        </div>
-
-        {#if showPreview}
-            <div id="printable-area" class="bg-white p-12 shadow-2xl rounded-sm border border-slate-200">
-                <div class="text-center border-b-4 border-slate-900 pb-6 mb-8">
-                    <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tighter">VAELIA FORGE</h1>
-                    <p class="text-xs font-black tracking-[0.3em] uppercase mt-2 text-slate-500">Premium Education Resource</p>
-                </div>
-
-                <div class="prose prose-slate max-w-none prose-h1:text-3xl prose-h2:text-primary prose-h2:border-l-4 prose-h2:border-primary prose-h2:pl-4 prose-hr:border-slate-100">
-                    {@html marked(generatedMarkdown)}
-                </div>
-            </div>
+    <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
-            <div class="flex justify-center mt-8 no-print">
-                <button onclick={printDoc} class="bg-primary text-white px-8 py-4 rounded-2xl font-bold shadow-lg hover:scale-105 transition-transform">
-                    Download Stylized PDF
-                </button>
+            <div class="lg:col-span-8 space-y-8">
+                
+                <div class="no-print bg-white p-8 rounded-3xl shadow-sm border border-slate-200 space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-2xl font-bold text-slate-800">Forge New Content</h2>
+                        <div class="flex bg-slate-100 p-1 rounded-xl">
+                            <button onclick={() => genMode = "lesson"} class="px-4 py-2 rounded-lg text-sm font-bold {genMode === 'lesson' ? 'bg-white shadow text-primary' : 'text-slate-500'}">Lesson Plan</button>
+                            <button onclick={() => genMode = "ppt"} class="px-4 py-2 rounded-lg text-sm font-bold {genMode === 'ppt' ? 'bg-white shadow text-primary' : 'text-slate-500'}">Presentation</button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <input bind:value={grade} placeholder="Grade Level" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
+                        <input bind:value={duration} placeholder="Duration" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
+                    </div>
+                    
+                    <textarea bind:value={prompt} placeholder="What should we teach today?" class="w-full h-32 p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary"></textarea>
+                    
+                    <div class="flex justify-between items-center">
+                        <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
+                        <Button onclick={handleGenerate} text="Generate Professional Preview" isLoading={isGenerating} />
+                    </div>
+                </div>
+
+                {#if showPreview}
+                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200 animate-in fade-in duration-700">
+                        <div class="text-center border-b-4 border-slate-900 pb-8 mb-10">
+                            <h1 class="text-5xl font-serif font-bold text-slate-900 tracking-tighter">VAELIA FORGE</h1>
+                            <p class="text-xs font-black tracking-[0.4em] uppercase mt-3 text-slate-500">Premium Educational Resource</p>
+                        </div>
+
+                        <div class="prose prose-slate max-w-none">
+                            {@html marked.parse(generatedMarkdown)}
+                        </div>
+                    </div>
+                    
+                    <div class="flex justify-center no-print">
+                        <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-all">
+                            Save as Stylized PDF
+                        </button>
+                    </div>
+                {:else if !isGenerating}
+                    <div class="no-print">
+                        <EmptyState message="Your forged lesson will appear here..." />
+                    </div>
+                {/if}
             </div>
-        {/if}
+
+            <div class="lg:col-span-4 space-y-8 no-print">
+                
+                <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
+                    <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
+                    <p class="text-primary-foreground/80 text-sm mb-6">Fuel your creativity with more forges.</p>
+                    <div class="space-y-4">
+                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
+                            10 Credits | $9.99
+                        </button>
+                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B64gBb2D695eva3RAbjW04'} class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all">
+                            <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-primary text-[10px] px-2 py-0.5 rounded-full border border-accent uppercase tracking-tighter">Best Value</span>
+                            25 Credits | $19.99
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                    <h3 class="text-lg font-bold text-slate-800 mb-6">Past Forges</h3>
+                    <div class="space-y-4">
+                        {#if history.length === 0}
+                            <p class="text-slate-400 text-sm italic">No history yet.</p>
+                        {:else}
+                            {#each history as item}
+                                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between group">
+                                    <div class="truncate mr-4">
+                                        <p class="font-bold text-slate-800 truncate text-sm">{item.prompt}</p>
+                                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">{new Date(item.created_at).toLocaleDateString()}</p>
+                                    </div>
+                                    <a href={item.file_path} target=\"_blank\" class=\"p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity\">
+                                        <svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-4 w-4 text-primary\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">
+                                            <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4\" />
+                                        </svg>
+                                    </a>
+                                </div>
+                            {/each}
+                        {/if}
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </main>
 </div>
 
 <style>
     @media print {
         .no-print { display: none !important; }
-        body { background: white !important; }
-        #printable-area { border: none !important; shadow: none !important; margin: 0 !important; padding: 0 !important; }
+        :global(body) { background: white !important; }
+        #printable-area { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
     }
-    :global(.prose h2) { margin-top: 2.5rem; margin-bottom: 1rem; color: #1e293b; }
+    
+    :global(.prose h2) { 
+        border-left: 8px solid #3b82f6; 
+        padding-left: 1.5rem;
+        margin-top: 2.5rem;
+        color: #1e293b;
+        text-transform: uppercase;
+        font-weight: 800;
+    }
 </style>
