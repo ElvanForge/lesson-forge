@@ -29,12 +29,12 @@
     onMount(() => {
         if (!isSupabaseConfigured) return;
         
-        // Check initial session
+        // 1. Check current session on load
         supabase.auth.getSession().then(({ data: { session } }) => {
             handleAuthStateChange(session);
         });
 
-        // Listen for auth changes (Sign In / Sign Out)
+        // 2. Listen for Sign In / Sign Out events globally
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             handleAuthStateChange(session);
         });
@@ -49,6 +49,7 @@
             await refreshCredits();
             await fetchHistory();
         } else {
+            // Reset everything on Sign Out
             isLoggedIn = false;
             email = "";
             credits = 0;
@@ -57,6 +58,7 @@
         }
     }
 
+    // 3. The actual function that the Sign Out button will call
     async function handleSignOut() {
         await supabase.auth.signOut();
     }
@@ -77,7 +79,7 @@
     }
 
     async function handleGenerate() {
-        if (!canGenerate) return;
+        if (!isLoggedIn || !canGenerate) return;
 
         isGenerating = true;
         showPreview = false;
