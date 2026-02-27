@@ -116,7 +116,7 @@
 
     function handleDownload(url: string) {
         window.open(url, '_blank');
-        downloadUrl = ""; // Hide button after click
+        downloadUrl = ""; 
     }
 </script>
 

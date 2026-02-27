@@ -20,7 +20,6 @@ type GeminiProvider struct {
 }
 
 func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
-	// Using 2.0-flash for multimodal capabilities (Image + Text)
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", g.APIKey)
 
 	modalities := []string{"TEXT"}
@@ -48,7 +47,7 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string, gen
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 120 * time.Second} // Longer timeout for image generation
+	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -86,7 +85,6 @@ type DeepSeekProvider struct {
 }
 
 func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
-	// DeepSeek currently does not support native image generation in this API version
 	url := "https://api.deepseek.com/v1/chat/completions"
 	payload := map[string]interface{}{
 		"model": "deepseek-chat",

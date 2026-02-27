@@ -66,13 +66,12 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1. Determine Cost
 	cost := 1
 	if req.Mode == "ppt" {
 		cost = 2
 	}
 
-	// 2. Atomic Credit Deduction (Pre-check)
+	// FIX: res.RowsAffected() only returns one value in pgx
 	res, err := pool.Exec(r.Context(), 
 		"UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", 
 		cost, userID)
@@ -80,13 +79,12 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Database error", 500)
 		return
 	}
-	rows, _ := res.RowsAffected()
-	if rows == 0 {
+	
+	if res.RowsAffected() == 0 {
 		http.Error(w, "Insufficient credits", 402)
 		return
 	}
 
-	// 3. Structured Template Prompt
 	templatePrompt := fmt.Sprintf(`Act as an expert educator. Create a lesson plan for: %s.
 	Grade Level: %s
 	Duration: %s
@@ -108,10 +106,8 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Updated GenerateContent signature to handle image toggle
 	content, err := provider.GenerateContent(r.Context(), templatePrompt, req.GenerateImages)
 	if err != nil {
-		// Refund credits on failure
 		pool.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2::uuid", cost, userID)
 		log.Printf("AI ERROR: %v", err)
 		http.Error(w, fmt.Sprintf("AI error: %v", err), 500)
@@ -144,7 +140,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Log generation record
 	pool.Exec(r.Context(), "INSERT INTO generations (user_id, prompt, file_path, type) VALUES ($1, $2, $3, $4)", userID, req.Prompt, url, req.Mode)
 
 	w.Header().Set("Content-Type", "application/json")
