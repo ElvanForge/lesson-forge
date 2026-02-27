@@ -83,7 +83,6 @@
         showPreview = false;
         
         const { data: { session } } = await supabase.auth.getSession();
-        
         const res = await fetch("/api/generate", {
             method: "POST",
             headers: { 
@@ -94,7 +93,7 @@
                 prompt, 
                 grade, 
                 duration, 
-                mode: genMode === "lesson" ? "pdf" : "ppt",
+                mode: genMode === "lesson" ? "lesson" : "ppt",
                 teacher_name: teacherName,
                 class_name: className
             })
@@ -230,7 +229,7 @@
                                         <p class="font-bold text-slate-800 truncate text-sm">{item.prompt}</p>
                                         <p class="text-[10px] text-slate-400 uppercase tracking-widest">{new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
-                                    <a href={item.file_path} target="_blank" rel="noreferrer" class="p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <a href={item.file_path} download target="_blank" rel="noreferrer" class="p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                         </svg>

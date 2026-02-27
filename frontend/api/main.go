@@ -95,7 +95,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	provider := logic.GetAIProvider(countryCode)
 	content, err := provider.GenerateContent(r.Context(), templatePrompt, req.GenerateImages)
 	if err != nil {
-		// Refund on failure
 		pool.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2::uuid", cost, userID)
 		http.Error(w, "AI error", 500)
 		return
@@ -108,13 +107,16 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		data, name, _ = logic.GeneratePPTX(userID, content)
 		cType = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 	} else {
-		data, name, _ = logic.GeneratePDF(userID, content)
-		cType = "application/pdf"
+		// CHANGE: Save as Markdown (.md) instead of PDF
+		data = []byte(content)
+		name = "lesson_plan.md"
+		cType = "text/markdown"
 	}
 
 	uniqueName := fmt.Sprintf("%d_%s", time.Now().Unix(), name)
 	url, _ := uploadToSupabase(data, uniqueName, cType)
 
+	// PERSISTENCE FIX: Save to generations table so it appears in history
 	_, dbErr := pool.Exec(r.Context(), 
 		"INSERT INTO generations (user_id, prompt, file_path, status) VALUES ($1, $2, $3, $4)", 
 		userID, req.Prompt, url, "completed")
