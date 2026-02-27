@@ -22,7 +22,7 @@
     let generatedMarkdown = $state("");
     let showPreview = $state(false);
 
-    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2); // Credits cost logic 
     let canGenerate = $derived(credits >= creditCost && prompt.length > 0);
 
     onMount(() => {
@@ -122,18 +122,26 @@
                             <button onclick={() => genMode = "ppt"} class="px-4 py-2 rounded-lg text-sm font-bold {genMode === 'ppt' ? 'bg-white shadow text-primary' : 'text-slate-500'}">Presentation</button>
                         </div>
                     </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <input bind:value={teacherName} placeholder="Teacher Name" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                         <input bind:value={className} placeholder="Class/Subject" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                     </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <input bind:value={grade} placeholder="Grade Level" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                         <input bind:value={duration} placeholder="Duration" class="p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary" />
                     </div>
+                    
                     <textarea bind:value={prompt} placeholder="What should we teach today?" class="w-full h-32 p-4 bg-slate-50 rounded-2xl border-none focus:ring-2 ring-primary"></textarea>
                     
                     <div class="flex justify-between items-center">
-                        <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
+                        <div class="flex flex-col">
+                            <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
+                            {#if isLoggedIn && credits < creditCost}
+                                <p class="text-xs text-red-500 font-bold">Insufficient Credits</p>
+                            {/if}
+                        </div>
                         <Button onclick={handleGenerate} text={isLoggedIn ? "Generate Preview" : "Sign in to Generate"} isLoading={isGenerating} disabled={!isLoggedIn || !canGenerate || isGenerating} />
                     </div>
                 </div>
@@ -141,13 +149,18 @@
                 {#if showPreview}
                     <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
                         <div class="prose prose-slate max-w-none">
+                            <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">
+                                {genMode === 'ppt' ? 'Presentation Preview' : 'Lesson Plan'}
+                            </h1>
                             {@html marked.parse(generatedMarkdown)}
                         </div>
                     </div>
                     <div class="flex justify-center no-print mt-8">
-                        <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">
-                            {genMode === 'ppt' ? 'Download Presentation' : 'Download Stylized PDF'}
-                        </button>
+                        {#if genMode === 'ppt'}
+                             <a href={history[0].file_path} download class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">Download Presentation (.pptx)</a>
+                        {:else}
+                            <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">Download Stylized PDF</button>
+                        {/if}
                     </div>
                 {:else if !isGenerating}
                     <EmptyState message="Your forged content will appear here..." />
@@ -177,11 +190,3 @@
         </div>
     </main>
 </div>
-
-<style>
-    @media print {
-        :global(.no-print) { display: none !important; }
-        :global(body) { background: white !important; margin: 0; }
-        #printable-area { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
-    }
-</style>
