@@ -22,7 +22,7 @@
     let generatedMarkdown = $state("");
     let showPreview = $state(false);
 
-    let creditCost = $derived(genMode === "lesson" ? 1 : 2); 
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
     let canGenerate = $derived(credits >= creditCost && prompt.length > 0);
 
     onMount(() => {
@@ -106,6 +106,25 @@
     }
 </script>
 
+<style>
+    /* This CSS block ensures that when you print, ONLY the lesson plan shows */
+    @media print {
+        :global(.no-print), :global(header), :global(nav), :global(.lg:col-span-4) {
+            display: none !important;
+        }
+        :global(body) {
+            background: white !important;
+        }
+        .printable-content {
+            box-shadow: none !important;
+            border: none !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            width: 100% !important;
+        }
+    }
+</style>
+
 <div class="min-h-screen bg-[#F8FAFC]">
     <div class="no-print">
         <Header title="Vaelia Forge" {email} {credits} {isLoggedIn} onSignOut={handleSignOut} />
@@ -114,6 +133,7 @@
     <main class="max-w-7xl mx-auto py-12 px-4">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             <div class="lg:col-span-8 space-y-8">
+                
                 <div class="no-print bg-white p-8 rounded-3xl shadow-sm border border-slate-200 space-y-6">
                     <div class="flex items-center justify-between">
                         <h2 class="text-2xl font-bold text-slate-800">Forge New Content</h2>
@@ -155,30 +175,41 @@
                                 </svg>
                             </div>
                             <div>
-                                <h4 class="font-bold text-slate-800">Low on Forge Power?</h4>
-                                <p class="text-sm text-slate-500">Upgrade now to keep generating high-quality presentations.</p>
+                                <h4 class="font-bold text-slate-800">Low on Credits?</h4>
+                                <p class="text-sm text-slate-500">Add credits to continue forging lessons.</p>
                             </div>
                         </div>
-                        <a href="https://buy.stripe.com/your_link" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">
-                            Get Credits
+                        <a href="https://buy.stripe.com/your_actual_link" target="_blank" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">
+                            Upgrade
                         </a>
                     </div>
                 {/if}
 
                 {#if showPreview}
-                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
+                    <div class="printable-content bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
                         <div class="prose prose-slate max-w-none">
-                            <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">
-                                {genMode === 'ppt' ? 'Presentation Preview' : 'Lesson Plan'}
-                            </h1>
+                            <div class="border-b-4 border-primary pb-4 mb-8">
+                                <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">
+                                    {genMode === 'ppt' ? 'Presentation Preview' : 'Lesson Plan'}
+                                </h1>
+                                <div class="flex gap-4 mt-2 text-slate-500 uppercase text-xs tracking-widest font-bold">
+                                    <span>{teacherName}</span>
+                                    <span>•</span>
+                                    <span>{className}</span>
+                                    <span>•</span>
+                                    <span>{grade}</span>
+                                </div>
+                            </div>
+                            
                             {@html marked.parse(generatedMarkdown.replace(/---/g, '<hr class="my-8 border-slate-200" />'))}
                         </div>
                     </div>
+                    
                     <div class="flex justify-center no-print mt-8">
                         {#if genMode === 'ppt'}
                              <a href={history[0].file_path} download class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">Download Presentation (.pptx)</a>
                         {:else}
-                            <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl">Download Stylized PDF</button>
+                            <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 transition-transform">Print Stylized PDF</button>
                         {/if}
                     </div>
                 {:else if !isGenerating}
