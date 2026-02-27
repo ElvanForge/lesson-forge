@@ -26,8 +26,8 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 		
 		slide := ppt.AddSlide()
 		
-		// FIX: Set Background via Properties
-		bg := slide.Properties().Background()
+		// Fix: Set Background using the direct Background() method
+		bg := slide.Background()
 		bg.Fill().SetSolidFill(color.LightSlateGray) 
 
 		// Split title from the rest of the slide content
@@ -62,7 +62,8 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 				}
 				
 				p := bodyTb.AddParagraph()
-				p.Properties().SetLevel(0) // Adds standard bullet indenting
+				// Adding indenting for bullet style
+				p.Properties().SetLevel(0) 
 				
 				run := p.AddRun()
 				run.SetText(text)
