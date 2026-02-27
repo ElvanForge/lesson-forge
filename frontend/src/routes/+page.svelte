@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { marked } from 'marked';
     import Header from "$lib/components/Header.svelte";
     import Button from "$lib/components/Button.svelte";
     import EmptyState from "$lib/components/EmptyState.svelte";
@@ -7,236 +8,103 @@
 
     let isLoggedIn = $state(false);
     let credits = $state(0);
-    let email = $state("");
     let isGenerating = $state(false);
     let prompt = $state("");
     let grade = $state("");
     let duration = $state("");
     let genMode = $state("lesson");
-    let generateImages = $state(false);
+    let generatedMarkdown = $state("");
+    let showPreview = $state(false);
     let history = $state<any[]>([]);
-    let downloadUrl = $state("");
 
-    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
-
-    onMount(() => {
-        if (!isSupabaseConfigured) return;
-        
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            handleAuthStateChange(session);
-        });
-
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-            handleAuthStateChange(session);
-        });
-
-        return () => subscription.unsubscribe();
-    });
-
-    async function handleAuthStateChange(session: any) {
+    onMount(async () => {
+        const { data: { session } } = await supabase.auth.getSession();
         if (session) {
             isLoggedIn = true;
-            email = session.user.email || "";
-            await refreshCredits();
-            await fetchHistory();
-        } else {
-            isLoggedIn = false;
-            email = "";
-            credits = 0;
-            history = [];
-            downloadUrl = "";
-            prompt = "";
+            refreshCredits();
+            fetchHistory();
         }
-    }
-
-    async function handleSignOut() {
-        await supabase.auth.signOut();
-    }
+    });
 
     async function refreshCredits() {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-        try {
-            const response = await fetch("/api/user/credits", {
-                headers: { "Authorization": `Bearer ${session.access_token}` }
-            });
-            if (response.ok) {
-                const data = await response.json();
-                credits = data.credits;
-            }
-        } catch (e) {
-            console.error(e);
-        }
+        const res = await fetch("/api/user/credits", {
+            headers: { "Authorization": `Bearer ${session?.access_token}` }
+        });
+        const data = await res.json();
+        credits = data.credits;
     }
 
     async function fetchHistory() {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
-        const { data } = await supabase.from('generations')
-            .select('*')
-            .eq('user_id', user.id)
-            .order('created_at', { ascending: false });
+        const { data } = await supabase.from('generations').select('*').order('created_at', { ascending: false });
         if (data) history = data;
     }
 
     async function handleGenerate() {
-        if (!isLoggedIn || !prompt || isGenerating) return;
         isGenerating = true;
-        downloadUrl = "";
-
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const response = await fetch("/api/generate", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${session?.access_token}`
-                },
-                body: JSON.stringify({ 
-                    prompt, 
-                    grade, 
-                    duration, 
-                    mode: genMode === "lesson" ? "pdf" : "ppt",
-                    generateImages: genMode === "slides" ? generateImages : false
-                })
-            });
-            
-            if (!response.ok) throw new Error("Forge failed");
-            
-            const data = await response.json();
-            downloadUrl = data.file;
-            await refreshCredits();
-            await fetchHistory();
-        } catch (err) {
-            alert("Error during generation. Please check your credits.");
-        } finally {
-            isGenerating = false;
-        }
+        showPreview = false;
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch("/api/generate", {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${session?.access_token}` 
+            },
+            body: JSON.stringify({ prompt, grade, duration, mode: genMode === "lesson" ? "pdf" : "ppt" })
+        });
+        const data = await res.json();
+        generatedMarkdown = data.raw_content;
+        showPreview = true;
+        isGenerating = false;
+        refreshCredits();
+        fetchHistory();
     }
 
-    function handleDownload(url: string) {
-        window.open(url, '_blank');
-        downloadUrl = ""; 
-    }
+    function printDoc() { window.print(); }
 </script>
 
 <div class="min-h-screen bg-[#F8FAFC]">
-    <Header 
-        {isLoggedIn} 
-        {credits} 
-        {email} 
-        title="Lesson Forge" 
-        onSignOut={handleSignOut} 
-    />
+    <div class="no-print">
+        <Header {isLoggedIn} {credits} title="Vaelia Forge" />
+    </div>
 
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
-            <div class="lg:col-span-8 space-y-8">
-                <div class="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
-                    <h2 class="text-2xl font-bold text-slate-900 mb-6">Forge Content</h2>
-                    
-                    <div class="space-y-6">
-                        <div class="flex p-1 bg-slate-100 rounded-2xl w-fit">
-                            <button 
-                                onclick={() => genMode = "lesson"}
-                                class="px-6 py-2 rounded-xl text-sm font-medium transition-all {genMode === 'lesson' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
-                                Lesson Plan
-                            </button>
-                            <button 
-                                onclick={() => genMode = "slides"}
-                                class="px-6 py-2 rounded-xl text-sm font-medium transition-all {genMode === 'slides' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
-                                Presentation
-                            </button>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-4">
-                            <input bind:value={grade} placeholder="Grade Level" class="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-primary/20 text-slate-700 placeholder:text-slate-400" />
-                            <input bind:value={duration} placeholder="Duration (e.g. 60 min)" class="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-primary/20 text-slate-700 placeholder:text-slate-400" />
-                        </div>
-
-                        <div class="relative">
-                            <textarea
-                                bind:value={prompt}
-                                placeholder="What is the topic of the lesson?"
-                                class="w-full h-32 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
-                            ></textarea>
-                        </div>
-
-                        {#if genMode === 'slides'}
-                        <div class="flex items-center gap-2 px-2">
-                            <input type="checkbox" id="imgGen" bind:checked={generateImages} class="rounded border-slate-300 text-primary focus:ring-primary" />
-                            <label for="imgGen" class="text-sm text-slate-600">Include AI-generated visuals for slides</label>
-                        </div>
-                        {/if}
-
-                        <div class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
-                            <div>
-                                <p class="text-sm font-bold text-slate-900">Cost: {creditCost} Credits</p>
-                                <p class="text-xs text-slate-500">Balance: {credits}</p>
-                            </div>
-                            
-                            <Button 
-                                onclick={handleGenerate} 
-                                disabled={isGenerating || !prompt || (isLoggedIn && credits < creditCost)}
-                                isLoading={isGenerating}
-                                variant="primary"
-                                text={isGenerating ? "Forging..." : "Forge Content"}
-                            />
-                        </div>
-
-                        {#if downloadUrl}
-                            <div class="animate-bounce flex justify-center mt-4">
-                                <button onclick={() => handleDownload(downloadUrl)} class="bg-accent text-primary font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2">
-                                    Download Ready
-                                </button>
-                            </div>
-                        {/if}
-                    </div>
-                </div>
-
-                <div class="space-y-4">
-                    <h3 class="text-xl font-bold text-slate-900">Forge History</h3>
-                    {#if history.length === 0}
-                        <EmptyState message="No previous forges found." />
-                    {:else}
-                        {#each history as item}
-                            <div class="bg-white p-6 rounded-3xl border border-slate-100 flex items-center justify-between hover:shadow-md transition-all">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-slate-400">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                        </svg>
-                                    </div>
-                                    <div>
-                                        <p class="font-bold text-slate-900 line-clamp-1">{item.prompt}</p>
-                                        <p class="text-xs text-slate-400">{new Date(item.created_at).toLocaleDateString()}</p>
-                                    </div>
-                                </div>
-                                <a href={item.file_path} target="_blank" class="p-3 rounded-xl bg-slate-50 text-slate-400 hover:bg-primary hover:text-white transition-all">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                    </svg>
-                                </a>
-                            </div>
-                        {/each}
-                    {/if}
-                </div>
+    <main class="max-w-5xl mx-auto py-12 px-4">
+        <div class="no-print bg-white p-8 rounded-3xl shadow-sm border mb-12 space-y-6">
+            <h2 class="text-2xl font-bold">Forge Lesson Plan</h2>
+            <div class="grid grid-cols-2 gap-4">
+                <input bind:value={grade} placeholder="Grade Level" class="p-4 bg-slate-50 rounded-2xl border-none" />
+                <input bind:value={duration} placeholder="Duration" class="p-4 bg-slate-50 rounded-2xl border-none" />
             </div>
-
-            <div class="lg:col-span-4">
-                <div class="p-8 bg-primary rounded-3xl text-white shadow-xl sticky top-8">
-                    <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
-                    <div class="space-y-4 mt-8">
-                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
-                            10 Credits | $9.99
-                        </button>
-                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B64gBb2D695eva3RAbjW04'} class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all">
-                            <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-primary text-[10px] px-3 py-1 rounded-full uppercase tracking-wider font-black">Best Value</span>
-                            50 Credits | $39.99
-                        </button>
-                    </div>
-                </div>
-            </div>
+            <textarea bind:value={prompt} placeholder="Enter your topic..." class="w-full h-32 p-4 bg-slate-50 rounded-2xl border-none"></textarea>
+            <Button onclick={handleGenerate} text="Generate Preview" isLoading={isGenerating} />
         </div>
+
+        {#if showPreview}
+            <div id="printable-area" class="bg-white p-12 shadow-2xl rounded-sm border border-slate-200">
+                <div class="text-center border-b-4 border-slate-900 pb-6 mb-8">
+                    <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tighter">VAELIA FORGE</h1>
+                    <p class="text-xs font-black tracking-[0.3em] uppercase mt-2 text-slate-500">Premium Education Resource</p>
+                </div>
+
+                <div class="prose prose-slate max-w-none prose-h1:text-3xl prose-h2:text-primary prose-h2:border-l-4 prose-h2:border-primary prose-h2:pl-4 prose-hr:border-slate-100">
+                    {@html marked(generatedMarkdown)}
+                </div>
+            </div>
+            
+            <div class="flex justify-center mt-8 no-print">
+                <button onclick={printDoc} class="bg-primary text-white px-8 py-4 rounded-2xl font-bold shadow-lg hover:scale-105 transition-transform">
+                    Download Stylized PDF
+                </button>
+            </div>
+        {/if}
     </main>
 </div>
+
+<style>
+    @media print {
+        .no-print { display: none !important; }
+        body { background: white !important; }
+        #printable-area { border: none !important; shadow: none !important; margin: 0 !important; padding: 0 !important; }
+    }
+    :global(.prose h2) { margin-top: 2.5rem; margin-bottom: 1rem; color: #1e293b; }
+</style>
