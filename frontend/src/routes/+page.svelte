@@ -29,13 +29,14 @@
     onMount(() => {
         if (!isSupabaseConfigured) return;
         
-        // 1. Check current session on load
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        // Listen for ANY auth change (sign in, sign out, token refresh)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+            console.log("Auth Event:", event); // Debugging
             handleAuthStateChange(session);
         });
 
-        // 2. Listen for Sign In / Sign Out events globally
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        // Initial check
+        supabase.auth.getSession().then(({ data: { session } }) => {
             handleAuthStateChange(session);
         });
 
@@ -49,7 +50,6 @@
             await refreshCredits();
             await fetchHistory();
         } else {
-            // Reset everything on Sign Out
             isLoggedIn = false;
             email = "";
             credits = 0;
@@ -58,9 +58,19 @@
         }
     }
 
-    // 3. The actual function that the Sign Out button will call
+    // AUTH ACTIONS
     async function handleSignOut() {
         await supabase.auth.signOut();
+        window.location.reload(); // Force refresh to clear state
+    }
+
+    async function handleSignIn() {
+        // This triggers the Supabase Auth UI (if configured) or your custom login
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google', // Or your preferred provider
+            options: { redirectTo: window.location.origin }
+        });
+        if (error) alert(error.message);
     }
 
     async function refreshCredits() {
@@ -79,7 +89,11 @@
     }
 
     async function handleGenerate() {
-        if (!isLoggedIn || !canGenerate) return;
+        if (!isLoggedIn) {
+            handleSignIn();
+            return;
+        }
+        if (!canGenerate) return;
 
         isGenerating = true;
         showPreview = false;
@@ -113,7 +127,8 @@
             {isLoggedIn} 
             {credits} 
             userEmail={email} 
-            signOut={handleSignOut}
+            onSignOut={handleSignOut}
+            onSignIn={handleSignIn}
             title="Vaelia Forge" 
         />
     </div>
@@ -154,7 +169,7 @@
                             onclick={handleGenerate} 
                             text={isLoggedIn ? "Generate Preview" : "Sign in to Generate"} 
                             isLoading={isGenerating} 
-                            disabled={!isLoggedIn || !canGenerate || isGenerating}
+                            disabled={isGenerating || (isLoggedIn && !canGenerate)}
                         />
                     </div>
                 </div>
@@ -179,7 +194,7 @@
                         </div>
                     </div>
                     
-                    <div class="flex justify-center no-print">
+                    <div class="flex justify-center no-print mt-6">
                         <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-all">
                             Download Stylized PDF
                         </button>
@@ -194,7 +209,7 @@
             <div class="lg:col-span-4 space-y-8 no-print">
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
-                    <p class="text-xs text-white/70 mb-6">Current Balance: {credits} Forges</p>
+                    <p class="text-xs text-white/70 mb-6 font-mono tracking-widest uppercase">Balance: {credits} Forges</p>
                     <div class="space-y-4 mt-6">
                         <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
