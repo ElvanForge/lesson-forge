@@ -124,9 +124,9 @@
                 </div>
 
                 {#if showPreview}
-                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200 animate-in fade-in duration-700">
+                    <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
                         <div class="text-center border-b-4 border-slate-900 pb-8 mb-10">
-                            <h1 class="text-5xl font-serif font-bold text-slate-900 tracking-tighter">VAELIA FORGE</h1>
+                            <h1 class="text-5xl font-serif font-bold text-slate-900 tracking-tighter uppercase">Vaelia Forge</h1>
                             <p class="text-xs font-black tracking-[0.4em] uppercase mt-3 text-slate-500">Premium Educational Resource</p>
                         </div>
 
@@ -151,8 +151,7 @@
                 
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
-                    <p class="text-primary-foreground/80 text-sm mb-6">Fuel your creativity with more forges.</p>
-                    <div class="space-y-4">
+                    <div class="space-y-4 mt-6">
                         <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
                         </button>
@@ -175,9 +174,9 @@
                                         <p class="font-bold text-slate-800 truncate text-sm">{item.prompt}</p>
                                         <p class="text-[10px] text-slate-400 uppercase tracking-widest">{new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
-                                    <a href={item.file_path} target=\"_blank\" class=\"p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity\">
-                                        <svg xmlns=\"http://www.w3.org/2000/svg\" class=\"h-4 w-4 text-primary\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\">
-                                            <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4\" />
+                                    <a href={item.file_path} target="_blank" rel="noreferrer" class="p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                         </svg>
                                     </a>
                                 </div>
@@ -193,8 +192,8 @@
 
 <style>
     @media print {
-        .no-print { display: none !important; }
-        :global(body) { background: white !important; }
+        :global(.no-print) { display: none !important; }
+        :global(body) { background: white !important; margin: 0; }
         #printable-area { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
     }
     
