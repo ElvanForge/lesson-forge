@@ -12,16 +12,21 @@ import (
 )
 
 type AIProvider interface {
-	GenerateContent(ctx context.Context, prompt string) (string, error)
+	GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error)
 }
 
 type GeminiProvider struct {
 	APIKey string
 }
 
-func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
-	// Updated to 1.5-flash which is much more stable for Free Tier users
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=%s", g.APIKey)
+func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
+	// Using 2.0-flash for multimodal capabilities (Image + Text)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=%s", g.APIKey)
+
+	modalities := []string{"TEXT"}
+	if genImage {
+		modalities = append(modalities, "IMAGE")
+	}
 
 	payload := map[string]interface{}{
 		"contents": []map[string]interface{}{
@@ -30,6 +35,9 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 					{"text": prompt},
 				},
 			},
+		},
+		"generationConfig": map[string]interface{}{
+			"response_modalities": modalities,
 		},
 	}
 
@@ -40,7 +48,7 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 90 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second} // Longer timeout for image generation
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -73,12 +81,12 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (st
 	return result.Candidates[0].Content.Parts[0].Text, nil
 }
 
-// DeepSeekProvider implementation...
 type DeepSeekProvider struct {
 	APIKey string
 }
 
-func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
+func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
+	// DeepSeek currently does not support native image generation in this API version
 	url := "https://api.deepseek.com/v1/chat/completions"
 	payload := map[string]interface{}{
 		"model": "deepseek-chat",
@@ -124,7 +132,7 @@ func (d *DeepSeekProvider) GenerateContent(ctx context.Context, prompt string) (
 
 type MockProvider struct{}
 
-func (m *MockProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
+func (m *MockProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
 	return "# Mock Content\nGenerated for: " + prompt, nil
 }
 

@@ -52,30 +52,68 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
-	
-	// Detect country from Vercel Edge headers
 	countryCode := r.Header.Get("x-vercel-ip-country")
 
 	var req struct {
-		Prompt string `json:"prompt"`
-		Mode   string `json:"mode"`
+		Prompt         string `json:"prompt"`
+		Mode           string `json:"mode"`
+		Grade          string `json:"grade"`
+		Duration       string `json:"duration"`
+		GenerateImages bool   `json:"generateImages"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", 400)
 		return
 	}
 
-	// Logic now determines provider based on country
+	// 1. Determine Cost
+	cost := 1
+	if req.Mode == "ppt" {
+		cost = 2
+	}
+
+	// 2. Atomic Credit Deduction (Pre-check)
+	res, err := pool.Exec(r.Context(), 
+		"UPDATE users SET credit_balance = credit_balance - $1 WHERE id = $2::uuid AND credit_balance >= $1", 
+		cost, userID)
+	if err != nil {
+		http.Error(w, "Database error", 500)
+		return
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		http.Error(w, "Insufficient credits", 402)
+		return
+	}
+
+	// 3. Structured Template Prompt
+	templatePrompt := fmt.Sprintf(`Act as an expert educator. Create a lesson plan for: %s.
+	Grade Level: %s
+	Duration: %s
+	
+	Structure the response EXACTLY with these headers:
+	- Subject / Course
+	- Topic
+	- Lesson Title
+	- Level & Duration
+	- Lesson Objectives
+	- Summary of Tasks / Actions
+	- Materials / Equipment
+	- References
+	- Take Home Tasks`, req.Prompt, req.Grade, req.Duration)
+
 	provider := logic.GetAIProvider(countryCode)
 	if provider == nil {
 		http.Error(w, "AI configuration error", 500)
 		return
 	}
 
-	content, err := provider.GenerateContent(r.Context(), req.Prompt)
+	// Updated GenerateContent signature to handle image toggle
+	content, err := provider.GenerateContent(r.Context(), templatePrompt, req.GenerateImages)
 	if err != nil {
-		log.Printf("AI ERROR (Country: %s): %v", countryCode, err)
-		// Return the actual error message (like "insufficient balance") to the frontend
+		// Refund credits on failure
+		pool.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance + $1 WHERE id = $2::uuid", cost, userID)
+		log.Printf("AI ERROR: %v", err)
 		http.Error(w, fmt.Sprintf("AI error: %v", err), 500)
 		return
 	}
@@ -106,13 +144,8 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := pool.Begin(r.Context())
-	if err == nil {
-		defer tx.Rollback(r.Context())
-		tx.Exec(r.Context(), "UPDATE users SET credit_balance = credit_balance - 1 WHERE id = $1::uuid", userID)
-		tx.Exec(r.Context(), "INSERT INTO generations (user_id, prompt, file_path, type) VALUES ($1, $2, $3, $4)", userID, req.Prompt, url, req.Mode)
-		tx.Commit(r.Context())
-	}
+	// Log generation record
+	pool.Exec(r.Context(), "INSERT INTO generations (user_id, prompt, file_path, type) VALUES ($1, $2, $3, $4)", userID, req.Prompt, url, req.Mode)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"file": url})

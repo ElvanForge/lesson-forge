@@ -10,11 +10,14 @@
     let email = $state("");
     let isGenerating = $state(false);
     let prompt = $state("");
+    let grade = $state("");
+    let duration = $state("");
     let genMode = $state("lesson");
+    let generateImages = $state(false);
     let history = $state<any[]>([]);
     let downloadUrl = $state("");
 
-    let creditCost = $derived(genMode === "lesson" ? 1 : 1);
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2);
 
     onMount(() => {
         if (!isSupabaseConfigured) return;
@@ -89,15 +92,19 @@
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${session?.access_token}`
                 },
-                body: JSON.stringify({ prompt, mode: genMode === "lesson" ? "pdf" : "ppt" })
+                body: JSON.stringify({ 
+                    prompt, 
+                    grade, 
+                    duration, 
+                    mode: genMode === "lesson" ? "pdf" : "ppt",
+                    generateImages: genMode === "slides" ? generateImages : false
+                })
             });
-
+            
             if (!response.ok) throw new Error("Forge failed");
             
             const data = await response.json();
             downloadUrl = data.file;
-            
-            // Re-fetch data to show updated credits and new history item
             await refreshCredits();
             await fetchHistory();
         } catch (err) {
@@ -105,6 +112,11 @@
         } finally {
             isGenerating = false;
         }
+    }
+
+    function handleDownload(url: string) {
+        window.open(url, '_blank');
+        downloadUrl = ""; // Hide button after click
     }
 </script>
 
@@ -137,17 +149,29 @@
                             </button>
                         </div>
 
+                        <div class="grid grid-cols-2 gap-4">
+                            <input bind:value={grade} placeholder="Grade Level" class="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-primary/20 text-slate-700 placeholder:text-slate-400" />
+                            <input bind:value={duration} placeholder="Duration (e.g. 60 min)" class="w-full p-4 bg-slate-50 border-none rounded-2xl focus:ring-2 focus:ring-primary/20 text-slate-700 placeholder:text-slate-400" />
+                        </div>
+
                         <div class="relative">
                             <textarea
                                 bind:value={prompt}
-                                placeholder="What would you like to forge today?"
-                                class="w-full h-40 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
+                                placeholder="What is the topic of the lesson?"
+                                class="w-full h-32 p-6 bg-slate-50 border-none rounded-3xl focus:ring-2 focus:ring-primary/20 transition-all resize-none text-slate-700 placeholder:text-slate-400"
                             ></textarea>
                         </div>
 
+                        {#if genMode === 'slides'}
+                        <div class="flex items-center gap-2 px-2">
+                            <input type="checkbox" id="imgGen" bind:checked={generateImages} class="rounded border-slate-300 text-primary focus:ring-primary" />
+                            <label for="imgGen" class="text-sm text-slate-600">Include AI-generated visuals for slides</label>
+                        </div>
+                        {/if}
+
                         <div class="flex items-center justify-between bg-slate-50 p-4 rounded-2xl">
                             <div>
-                                <p class="text-sm font-bold text-slate-900">Cost: {creditCost} Credit</p>
+                                <p class="text-sm font-bold text-slate-900">Cost: {creditCost} Credits</p>
                                 <p class="text-xs text-slate-500">Balance: {credits}</p>
                             </div>
                             
@@ -162,9 +186,9 @@
 
                         {#if downloadUrl}
                             <div class="animate-bounce flex justify-center mt-4">
-                                <a href={downloadUrl} target="_blank" class="bg-accent text-primary font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2">
+                                <button onclick={() => handleDownload(downloadUrl)} class="bg-accent text-primary font-bold py-3 px-8 rounded-2xl shadow-lg flex items-center gap-2">
                                     Download Ready
-                                </a>
+                                </button>
                             </div>
                         {/if}
                     </div>
