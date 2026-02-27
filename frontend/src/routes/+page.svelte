@@ -22,7 +22,7 @@
     let generatedMarkdown = $state("");
     let showPreview = $state(false);
 
-    let creditCost = $derived(genMode === "lesson" ? 1 : 2); // Credits cost logic 
+    let creditCost = $derived(genMode === "lesson" ? 1 : 2); 
     let canGenerate = $derived(credits >= creditCost && prompt.length > 0);
 
     onMount(() => {
@@ -90,7 +90,7 @@
                 teacher_name: teacherName, class_name: className
             })
         });
-        
+
         if (res.ok) {
             const data = await res.json();
             generatedMarkdown = data.raw_content;
@@ -146,13 +146,32 @@
                     </div>
                 </div>
 
+                {#if isLoggedIn && credits < 5}
+                    <div class="no-print p-6 bg-gradient-to-br from-indigo-50 to-white border border-indigo-100 rounded-3xl shadow-sm flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="bg-indigo-500 p-3 rounded-2xl text-white">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h4 class="font-bold text-slate-800">Low on Forge Power?</h4>
+                                <p class="text-sm text-slate-500">Upgrade now to keep generating high-quality presentations.</p>
+                            </div>
+                        </div>
+                        <a href="https://buy.stripe.com/your_link" class="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200">
+                            Get Credits
+                        </a>
+                    </div>
+                {/if}
+
                 {#if showPreview}
                     <div id="printable-area" class="bg-white p-12 lg:p-16 shadow-2xl rounded-sm border border-slate-200">
                         <div class="prose prose-slate max-w-none">
                             <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">
                                 {genMode === 'ppt' ? 'Presentation Preview' : 'Lesson Plan'}
                             </h1>
-                            {@html marked.parse(generatedMarkdown)}
+                            {@html marked.parse(generatedMarkdown.replace(/---/g, '<hr class="my-8 border-slate-200" />'))}
                         </div>
                     </div>
                     <div class="flex justify-center no-print mt-8">

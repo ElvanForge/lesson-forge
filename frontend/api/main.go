@@ -78,10 +78,15 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 	var currentPrompt string
 	if req.Mode == "ppt" {
-		currentPrompt = fmt.Sprintf(`Act as an expert presenter. Create a presentation outline for: %s.
+		currentPrompt = fmt.Sprintf(`Act as an expert presenter. Create a presentation for: %s.
 		Grade Level: %s. 
-		Each slide should start with a "# " for the title, followed by bullet points. 
-		Limit to 7-10 slides.`, req.Prompt, req.Grade)
+		
+		STRICT RULES:
+		1. Separate EVERY slide with exactly "---" on its own line.
+		2. Provide at least 6-8 slides.
+		3. Use bullet points for the body (max 4 per slide). No paragraphs.
+		4. The first line of each slide is the Title. DO NOT use hashtags (#).
+		5. DO NOT use markdown bold (**) or other symbols.`, req.Prompt, req.Grade)
 	} else {
 		currentPrompt = fmt.Sprintf(`Act as an expert educator. Create a high-quality lesson plan.
 		Topic: %s | Grade Level: %s | Duration: %s
@@ -130,18 +135,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		"file": url,
 		"raw_content": content,
 	})
-	if req.Mode == "ppt" {
-    currentPrompt = fmt.Sprintf(`Act as an expert presenter. Create a presentation for: %s.
-    Grade Level: %s. 
-    
-    RULES:
-    1. Separate EVERY slide with exactly "---".
-    2. The first line of each slide is the Title.
-    3. Use bullet points for the body.
-    4. DO NOT use markdown bold (**) or multiple hashtags.
-    
-    Limit to 7 slides.`, req.Prompt, req.Grade)
-	}
 }
 
 func handleGetCredits(w http.ResponseWriter, r *http.Request) {
@@ -163,7 +156,7 @@ func authMiddleware(next http.Handler) http.Handler {
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
-		var user struct{ ID string `json:"id"` }
+		var user struct{ ID string `json:"id" `}
 		json.NewDecoder(resp.Body).Decode(&user)
 		r.Header.Set("X-User-ID", user.ID)
 		next.ServeHTTP(w, r)

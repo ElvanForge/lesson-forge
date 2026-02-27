@@ -14,26 +14,30 @@ import (
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 	ppt := presentation.New()
 	
-	// Split slides by "---"
+	// Split slides by "---" separator
 	slides := strings.Split(content, "---")
 	
 	for _, slideContent := range slides {
 		cleanContent := strings.TrimSpace(slideContent)
-		if cleanContent == "" || strings.Contains(cleanContent, "stripe.com") {
-			continue
-		}
+		if cleanContent == "" { continue }
 		
 		slide := ppt.AddSlide()
 
-		// 1. STRIP MARKDOWN (Cleans up #, *, **, etc.)
-		replacer := strings.NewReplacer("#", "", "*", "", "_", "", "**", "", "__", "")
+		// 1. CLEAN TEXT & REMOVE LINKS
+		// Strip markdown symbols and filter out raw URLs/Stripe links
+		replacer := strings.NewReplacer("#", "", "**", "", "__", "", "* ", "• ")
 		lines := strings.Split(cleanContent, "\n")
 		
 		var titleText string
 		var bodyLines []string
 		for _, line := range lines {
+			if strings.Contains(line, "stripe.com") || strings.Contains(line, "http") {
+				continue
+			}
+
 			trimmed := strings.TrimSpace(replacer.Replace(line))
 			if trimmed == "" { continue }
+			
 			if titleText == "" {
 				titleText = trimmed
 			} else {
@@ -41,38 +45,45 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 			}
 		}
 
-		// 2. DESIGN: THE SIDEBAR (Professional Blue-Gray)
-		// This makes the slide look like a template rather than a blank page
+		// 2. DESIGN: THE SIDEBAR ACCENT
+		// A vertical bar on the left makes the slide look professionally designed
 		sidebar := slide.AddTextBox()
 		sidebar.Properties().SetPosition(0, 0)
-		sidebar.Properties().SetSize(2.2*measurement.Inch, 7.5*measurement.Inch)
+		sidebar.Properties().SetSize(0.3*measurement.Inch, 7.5*measurement.Inch)
 		sidebar.Properties().SetSolidFill(color.SlateGray)
 
-		// 3. THE TITLE (Right-aligned next to sidebar)
+		// 3. THE TITLE
 		titleTb := slide.AddTextBox()
-		titleTb.Properties().SetPosition(2.5*measurement.Inch, 0.6*measurement.Inch)
-		titleTb.Properties().SetSize(7.0*measurement.Inch, 1.2*measurement.Inch)
+		titleTb.Properties().SetPosition(0.6*measurement.Inch, 0.6*measurement.Inch)
+		titleTb.Properties().SetSize(8.8*measurement.Inch, 1.2*measurement.Inch)
 		
 		titleP := titleTb.AddParagraph()
 		run := titleP.AddRun()
 		run.SetText(strings.ToUpper(titleText))
-		run.Properties().SetSize(32)
+		
+		// Correct font size syntax for gooxml build
+		run.Properties().SetSize(34 * measurement.Point)
 		run.Properties().SetBold(true)
 		run.Properties().SetSolidFill(color.SteelBlue)
 
-		// 4. THE BODY (Clean list)
+		// 4. THE BODY (With Dynamic Font Scaling)
 		if len(bodyLines) > 0 {
 			bodyTb := slide.AddTextBox()
-			bodyTb.Properties().SetPosition(2.5*measurement.Inch, 2.0*measurement.Inch)
-			bodyTb.Properties().SetSize(7.0*measurement.Inch, 4.8*measurement.Inch)
+			bodyTb.Properties().SetPosition(0.8*measurement.Inch, 2.0*measurement.Inch)
+			bodyTb.Properties().SetSize(8.5*measurement.Inch, 4.8*measurement.Inch)
 			
+			// Adjust font size based on content density to prevent "Wall of Text"
+			fontSize := 22.0
+			if len(bodyLines) > 6 { fontSize = 18.0 }
+			if len(bodyLines) > 9 { bodyLines = bodyLines[:9] } // Hard limit for legibility
+
 			for _, line := range bodyLines {
 				p := bodyTb.AddParagraph()
-				p.Properties().SetLevel(0) // Indents text as a bullet point
+				p.Properties().SetLevel(0) 
 				
 				bodyRun := p.AddRun()
 				bodyRun.SetText(line)
-				bodyRun.Properties().SetSize(18)
+				bodyRun.Properties().SetSize(measurement.Distance(fontSize) * measurement.Point)
 				bodyRun.Properties().SetSolidFill(color.DimGray)
 			}
 		}
