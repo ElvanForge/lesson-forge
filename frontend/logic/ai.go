@@ -21,7 +21,7 @@ type GeminiProvider struct {
 
 func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string) (string, error) {
 	// Updated to 1.5-flash which is much more stable for Free Tier users
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=%s", g.APIKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=%s", g.APIKey)
 
 	payload := map[string]interface{}{
 		"contents": []map[string]interface{}{
