@@ -24,13 +24,21 @@
     let showPreview = $state(false);
 
     let creditCost = $derived(genMode === "lesson" ? 1 : 2);
-    // Logic to prevent infinite spinning
     let canGenerate = $derived(credits >= creditCost && prompt.length > 0);
 
     onMount(() => {
         if (!isSupabaseConfigured) return;
-        supabase.auth.getSession().then(({ data: { session } }) => handleAuthStateChange(session));
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => handleAuthStateChange(session));
+        
+        // Check initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleAuthStateChange(session);
+        });
+
+        // Listen for auth changes (Sign In / Sign Out)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            handleAuthStateChange(session);
+        });
+
         return () => subscription.unsubscribe();
     });
 
@@ -49,6 +57,10 @@
         }
     }
 
+    async function handleSignOut() {
+        await supabase.auth.signOut();
+    }
+
     async function refreshCredits() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
@@ -65,10 +77,7 @@
     }
 
     async function handleGenerate() {
-        if (!canGenerate) {
-            if (credits < creditCost) alert("You need more credits to forge this content!");
-            return;
-        }
+        if (!canGenerate) return;
 
         isGenerating = true;
         showPreview = false;
@@ -89,9 +98,6 @@
             showPreview = true;
             await refreshCredits();
             await fetchHistory();
-        } else {
-            const err = await res.json();
-            alert(err.error || "Generation failed");
         }
         isGenerating = false;
     }
@@ -101,7 +107,13 @@
 
 <div class="min-h-screen bg-[#F8FAFC]">
     <div class="no-print">
-        <Header {isLoggedIn} {credits} userEmail={email} title="Vaelia Forge" />
+        <Header 
+            {isLoggedIn} 
+            {credits} 
+            userEmail={email} 
+            signOut={handleSignOut}
+            title="Vaelia Forge" 
+        />
     </div>
 
     <main class="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
@@ -132,15 +144,15 @@
                     <div class="flex justify-between items-center">
                         <div class="flex flex-col">
                             <p class="text-sm text-slate-500 font-medium">Cost: <span class="text-primary font-bold">{creditCost} Credit</span></p>
-                            {#if credits < creditCost}
+                            {#if isLoggedIn && credits < creditCost}
                                 <p class="text-xs text-red-500 font-bold">Insufficient Credits</p>
                             {/if}
                         </div>
                         <Button 
                             onclick={handleGenerate} 
-                            text="Generate Preview" 
+                            text={isLoggedIn ? "Generate Preview" : "Sign in to Generate"} 
                             isLoading={isGenerating} 
-                            disabled={!canGenerate || isGenerating}
+                            disabled={!isLoggedIn || !canGenerate || isGenerating}
                         />
                     </div>
                 </div>
@@ -150,7 +162,7 @@
                         <div class="border-b-2 border-slate-900 pb-6 mb-10 flex justify-between items-end">
                             <div>
                                 <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">Lesson Plan</h1>
-                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Vaelia Forge | Academic Resource</p>
+                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Generated via Vaelia Forge</p>
                             </div>
                             <div class="text-right text-sm space-y-1 text-slate-700 font-mono uppercase">
                                 <p><span class="font-bold">Teacher:</span> {teacherName || '____________'}</p>
@@ -167,7 +179,7 @@
                     
                     <div class="flex justify-center no-print">
                         <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-all">
-                            Save as Stylized PDF
+                            Download Stylized PDF
                         </button>
                     </div>
                 {:else if !isGenerating}
@@ -180,6 +192,7 @@
             <div class="lg:col-span-4 space-y-8 no-print">
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
+                    <p class="text-xs text-white/70 mb-6">Current Balance: {credits} Forges</p>
                     <div class="space-y-4 mt-6">
                         <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
