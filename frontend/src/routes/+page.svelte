@@ -29,14 +29,13 @@
     onMount(() => {
         if (!isSupabaseConfigured) return;
         
-        // Listen for ANY auth change (sign in, sign out, token refresh)
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-            console.log("Auth Event:", event); // Debugging
+        // Initial session check
+        supabase.auth.getSession().then(({ data: { session } }) => {
             handleAuthStateChange(session);
         });
 
-        // Initial check
-        supabase.auth.getSession().then(({ data: { session } }) => {
+        // Listen for all auth events (LOGIN, LOGOUT, etc)
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             handleAuthStateChange(session);
         });
 
@@ -58,19 +57,16 @@
         }
     }
 
-    // AUTH ACTIONS
     async function handleSignOut() {
         await supabase.auth.signOut();
-        window.location.reload(); // Force refresh to clear state
     }
 
     async function handleSignIn() {
-        // This triggers the Supabase Auth UI (if configured) or your custom login
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google', // Or your preferred provider
+        // Standard Supabase Google login
+        await supabase.auth.signInWithOAuth({
+            provider: 'google',
             options: { redirectTo: window.location.origin }
         });
-        if (error) alert(error.message);
     }
 
     async function refreshCredits() {
@@ -84,7 +80,11 @@
     }
 
     async function fetchHistory() {
-        const { data } = await supabase.from('generations').select('*').order('created_at', { ascending: false });
+        const { data, error } = await supabase
+            .from('generations')
+            .select('*')
+            .order('created_at', { ascending: false });
+        
         if (data) history = data;
     }
 
@@ -110,8 +110,11 @@
         
         if (res.ok) {
             const data = await res.json();
-            generatedMarkdown = data.raw_content;
+            // Important: Logic assumes backend returns 'raw_content' or similar
+            generatedMarkdown = data.raw_content || ""; 
             showPreview = true;
+            
+            // REFRESH HISTORY IMMEDIATELY after successful generation
             await refreshCredits();
             await fetchHistory();
         }
@@ -127,8 +130,8 @@
             {isLoggedIn} 
             {credits} 
             userEmail={email} 
-            onSignOut={handleSignOut}
-            onSignIn={handleSignIn}
+            signOut={handleSignOut}
+            signIn={handleSignIn}
             title="Vaelia Forge" 
         />
     </div>
@@ -179,7 +182,7 @@
                         <div class="border-b-2 border-slate-900 pb-6 mb-10 flex justify-between items-end">
                             <div>
                                 <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">Lesson Plan</h1>
-                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Generated via Vaelia Forge</p>
+                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Vaelia Forge | Academic Resource</p>
                             </div>
                             <div class="text-right text-sm space-y-1 text-slate-700 font-mono uppercase">
                                 <p><span class="font-bold">Teacher:</span> {teacherName || '____________'}</p>
@@ -196,7 +199,7 @@
                     
                     <div class="flex justify-center no-print mt-6">
                         <button onclick={printDoc} class="bg-primary text-white px-10 py-5 rounded-2xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-all">
-                            Download Stylized PDF
+                            Save as PDF
                         </button>
                     </div>
                 {:else if !isGenerating}
@@ -209,7 +212,7 @@
             <div class="lg:col-span-4 space-y-8 no-print">
                 <div class="p-8 bg-primary rounded-3xl text-white shadow-xl">
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
-                    <p class="text-xs text-white/70 mb-6 font-mono tracking-widest uppercase">Balance: {credits} Forges</p>
+                    <p class="text-xs text-white/70 mb-6">Current Balance: {credits} Forges</p>
                     <div class="space-y-4 mt-6">
                         <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
@@ -244,6 +247,7 @@
                     </div>
                 </div>
             </div>
+
         </div>
     </main>
 </div>
