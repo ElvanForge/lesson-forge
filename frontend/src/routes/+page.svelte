@@ -8,7 +8,7 @@
 
     let isLoggedIn = $state(false);
     let credits = $state(0);
-    let email = $state(""); // This holds the user's email address
+    let email = $state(""); 
     let isGenerating = $state(false);
     
     // Form Fields
@@ -29,12 +29,10 @@
     onMount(() => {
         if (!isSupabaseConfigured) return;
         
-        // Check initial session
         supabase.auth.getSession().then(({ data: { session } }) => {
             handleAuthStateChange(session);
         });
 
-        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
             handleAuthStateChange(session);
         });
@@ -57,7 +55,6 @@
         }
     }
 
-    // Logic for the Sign Out button
     async function handleSignOut() {
         await supabase.auth.signOut();
     }
@@ -87,13 +84,22 @@
         showPreview = false;
         
         const { data: { session } } = await supabase.auth.getSession();
+        
+        // 1. Generate the content via API
         const res = await fetch("/api/generate", {
             method: "POST",
             headers: { 
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${session?.access_token}` 
             },
-            body: JSON.stringify({ prompt, grade, duration, mode: genMode === "lesson" ? "pdf" : "ppt" })
+            body: JSON.stringify({ 
+                prompt, 
+                grade, 
+                duration, 
+                mode: genMode === "lesson" ? "pdf" : "ppt",
+                teacher_name: teacherName,
+                class_name: className
+            })
         });
         
         if (res.ok) {
@@ -101,14 +107,19 @@
             generatedMarkdown = data.raw_content;
             showPreview = true;
             
-            // REFRESH HISTORY AND CREDITS IMMEDIATELY
+            // 2. Refresh UI to show the new item in history and updated credits
             await refreshCredits();
             await fetchHistory();
+        } else {
+            const error = await res.json();
+            alert(error.error || "Generation failed");
         }
         isGenerating = false;
     }
 
-    function printDoc() { window.print(); }
+    function printDoc() {
+        window.print();
+    }
 </script>
 
 <div class="min-h-screen bg-[#F8FAFC]">
@@ -168,9 +179,12 @@
                         <div class="border-b-2 border-slate-900 pb-6 mb-10 flex justify-between items-end">
                             <div>
                                 <h1 class="text-4xl font-serif font-bold text-slate-900 tracking-tight uppercase">Lesson Plan</h1>
+                                <p class="text-sm font-medium text-slate-500 mt-1 italic">Generated via Vaelia Forge</p>
                             </div>
                             <div class="text-right text-sm space-y-1 text-slate-700 font-mono uppercase">
                                 <p><span class="font-bold">Teacher:</span> {teacherName || '____________'}</p>
+                                <p><span class="font-bold">Class:</span> {className || '____________'}</p>
+                                <p><span class="font-bold">Grade:</span> {grade || '____________'}</p>
                                 <p><span class="font-bold">Date:</span> {new Date().toLocaleDateString()}</p>
                             </div>
                         </div>
@@ -197,8 +211,12 @@
                     <h3 class="text-xl font-bold mb-2">Get More Credits</h3>
                     <p class="text-xs text-white/70 mb-6">Current Balance: {credits} Forges</p>
                     <div class="space-y-4 mt-6">
-                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md">
+                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B600lb2D6951Io1JsbjW03'} class="w-full bg-white text-primary font-bold py-4 rounded-2xl shadow-md hover:-translate-y-1 transition-all">
                             10 Credits | $9.99
+                        </button>
+                        <button onclick={() => window.location.href = 'https://buy.stripe.com/9B64gBb2D695eva3RAbjW04'} class="w-full bg-accent text-primary font-extrabold py-5 rounded-2xl shadow-lg relative hover:-translate-y-1 transition-all">
+                            <span class="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-primary text-[10px] px-2 py-0.5 rounded-full border border-accent uppercase tracking-tighter">Best Value</span>
+                            25 Credits | $19.99
                         </button>
                     </div>
                 </div>
@@ -210,10 +228,10 @@
                             <p class="text-slate-400 text-sm italic">No history yet.</p>
                         {:else}
                             {#each history as item}
-                                <div class="p-4 bg-slate-50 rounded-2xl flex items-center justify-between group">
+                                <div class="p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-between group">
                                     <div class="truncate mr-4">
                                         <p class="font-bold text-slate-800 truncate text-sm">{item.prompt}</p>
-                                        <p class="text-[10px] text-slate-400 uppercase">{new Date(item.created_at).toLocaleDateString()}</p>
+                                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">{new Date(item.created_at).toLocaleDateString()}</p>
                                     </div>
                                     <a href={item.file_path} target="_blank" rel="noreferrer" class="p-2 bg-white rounded-xl shadow-sm opacity-0 group-hover:opacity-100 transition-opacity">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -229,3 +247,19 @@
         </div>
     </main>
 </div>
+
+<style>
+    @media print {
+        :global(.no-print) { display: none !important; }
+        :global(body) { background: white !important; margin: 0; }
+        #printable-area { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
+    }
+    
+    :global(.prose h2) { 
+        border-bottom: 1px solid #e2e8f0;
+        padding-bottom: 0.5rem;
+        margin-top: 2rem;
+        color: #0f172a;
+        font-weight: 700;
+    }
+</style>
