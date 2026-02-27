@@ -15,25 +15,23 @@ import (
 func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 	ppt := presentation.New()
 	
-	// Split by slide separator
+	// Split slides by the separator
 	slides := strings.Split(content, "---")
 	
 	for _, slideContent := range slides {
 		cleanContent := strings.TrimSpace(slideContent)
-		if cleanContent == "" {
-			continue
+		if cleanContent == "" || strings.Contains(cleanContent, "stripe.com") { 
+			continue 
 		}
 		
 		slide := ppt.AddSlide()
 
-		// --- 1. THE CANVAS (Background) ---
-		// We create a box that covers the WHOLE slide to simulate a background color
-		bgCanvas := slide.AddTextBox()
-		bgCanvas.Properties().SetPosition(0, 0)
-		bgCanvas.Properties().SetSize(10*measurement.Inch, 7.5*measurement.Inch)
-		bgCanvas.Properties().SetSolidFill(color.Gray) // A nice Slate/Gray base
+		// --- 1. SET REAL BACKGROUND COLOR ---
+		// We use the slide's background property correctly here
+		bg := slide.Background()
+		bg.Fill().SetSolidFill(color.SlateGray) // This forces the whole slide to NOT be white
 
-		// --- 2. CLEANING & PARSING ---
+		// --- 2. PARSE CONTENT (Remove Markdown) ---
 		lines := strings.Split(cleanContent, "\n")
 		var titleText string
 		var bodyLines []string
@@ -41,13 +39,9 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 		for _, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" { continue }
-
-			// Remove Markdown syntax
-			line = strings.ReplaceAll(line, "#", "")
-			line = strings.ReplaceAll(line, "**", "")
-			line = strings.ReplaceAll(line, "__", "")
-			line = strings.TrimSpace(line)
-
+			// Strip all markdown characters
+			line = strings.NewReplacer("#", "", "*", "", "_", "", "`", "").Replace(line)
+			
 			if titleText == "" {
 				titleText = line
 			} else {
@@ -55,40 +49,33 @@ func GeneratePPTX(userID string, content string) ([]byte, string, error) {
 			}
 		}
 
-		// --- 3. STYLIZED TITLE AREA ---
-		// A dark header bar at the top
-		headerBar := slide.AddTextBox()
-		headerBar.Properties().SetPosition(0, 0)
-		headerBar.Properties().SetSize(10*measurement.Inch, 1.5*measurement.Inch)
-		headerBar.Properties().SetSolidFill(color.DarkBlue)
-
-		titleP := headerBar.AddParagraph()
+		// --- 3. TITLE BOX ---
+		titleTb := slide.AddTextBox()
+		titleTb.Properties().SetPosition(0.5*measurement.Inch, 0.5*measurement.Inch)
+		titleTb.Properties().SetSize(9*measurement.Inch, 1.5*measurement.Inch)
+		
+		titleP := titleTb.AddParagraph()
 		titleP.Properties().SetAlign(dml.ST_TextAlignTypeCtr)
 		run := titleP.AddRun()
 		run.SetText(strings.ToUpper(titleText))
-		run.Properties().SetSize(40)
+		run.Properties().SetSize(44)
 		run.Properties().SetBold(true)
 		run.Properties().SetSolidFill(color.White)
 
-		// --- 4. STYLIZED BODY AREA ---
+		// --- 4. BODY BOX ---
 		if len(bodyLines) > 0 {
 			bodyTb := slide.AddTextBox()
-			bodyTb.Properties().SetPosition(0.75*measurement.Inch, 2.0*measurement.Inch)
-			bodyTb.Properties().SetSize(8.5*measurement.Inch, 5.0*measurement.Inch)
+			bodyTb.Properties().SetPosition(1*measurement.Inch, 2.2*measurement.Inch)
+			bodyTb.Properties().SetSize(8*measurement.Inch, 4.5*measurement.Inch)
 			
 			for _, line := range bodyLines {
-				// Clean bullet characters
-				text := strings.TrimPrefix(line, "*")
-				text = strings.TrimPrefix(text, "-")
-				text = strings.TrimSpace(text)
-
 				p := bodyTb.AddParagraph()
-				p.Properties().SetLevel(0) // Indent as a bullet
+				p.Properties().SetLevel(0) // Adds bullet points
 				
 				bodyRun := p.AddRun()
-				bodyRun.SetText(text)
-				bodyRun.Properties().SetSize(22)
-				bodyRun.Properties().SetSolidFill(color.White)
+				bodyRun.SetText(line)
+				bodyRun.Properties().SetSize(24)
+				bodyRun.Properties().SetSolidFill(color.LightGray)
 			}
 		}
 	}
