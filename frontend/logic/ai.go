@@ -14,12 +14,12 @@ type AIProvider interface {
 	GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error)
 }
 
+// GeminiProvider implementation
 type GeminiProvider struct {
 	APIKey string
 }
 
 func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string, genImage bool) (string, error) {
-	// Updated to Gemini 2.5 Flash for 2026 availability
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", g.APIKey)
 
 	modalities := []string{"TEXT"}
@@ -53,14 +53,23 @@ func (g *GeminiProvider) GenerateContent(ctx context.Context, prompt string, gen
 		} `json:"candidates"`
 	}
 	json.NewDecoder(resp.Body).Decode(&result)
-	return result.Candidates[0].Content.Parts[0].Text, nil
+	
+	if len(result.Candidates) > 0 && len(result.Candidates[0].Content.Parts) > 0 {
+		return result.Candidates[0].Content.Parts[0].Text, nil
+	}
+	return "", fmt.Errorf("AI returned empty content")
 }
 
-// ... DeepSeek and Mock providers follow the same interface ...
+// FIX: Added missing MockProvider struct definition
+type MockProvider struct{}
+
 func (m *MockProvider) GenerateContent(ctx context.Context, p string, img bool) (string, error) {
-	return "# Mock Content", nil
+	return "# Mock Content\nThis is a generated lesson plan for testing purposes.", nil
 }
 
 func GetAIProvider(countryCode string) AIProvider {
+	if os.Getenv("MOCK_AI") == "true" {
+		return &MockProvider{}
+	}
 	return &GeminiProvider{APIKey: os.Getenv("GEMINI_KEY")}
 }
