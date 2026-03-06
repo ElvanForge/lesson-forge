@@ -79,9 +79,11 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	templatePrompt := fmt.Sprintf(`Act as an expert educator. Create a high-quality lesson plan.
 	Topic: %s | Grade Level: %s | Duration: %s
 	
-	If the mode is "ppt", separate each slide with '---'. 
+	IMPORTANT: If the mode is "ppt", separate each slide with exactly three dashes --- 
 	Start each slide with a clear Title.
-	
+	Limit each slide to 5-7 bullet points so the text fits.
+
+	If not a "ppt"
 	Use this exact Markdown structure:
 	# Lesson: [Title]
 	## Objectives
