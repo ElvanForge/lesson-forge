@@ -79,6 +79,9 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	templatePrompt := fmt.Sprintf(`Act as an expert educator. Create a high-quality lesson plan.
 	Topic: %s | Grade Level: %s | Duration: %s
 	
+	If the mode is "ppt", separate each slide with '---'. 
+	Start each slide with a clear Title.
+	
 	Use this exact Markdown structure:
 	# Lesson: [Title]
 	## Objectives
@@ -116,7 +119,6 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	uniqueName := fmt.Sprintf("%d_%s", time.Now().Unix(), name)
 	url, _ := uploadToSupabase(data, uniqueName, cType)
 
-	// PERSISTENCE FIX: Save to generations table so it appears in history
 	_, dbErr := pool.Exec(r.Context(), 
 		"INSERT INTO generations (user_id, prompt, file_path, status) VALUES ($1, $2, $3, $4)", 
 		userID, req.Prompt, url, "completed")
